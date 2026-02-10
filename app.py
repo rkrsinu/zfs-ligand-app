@@ -1,157 +1,98 @@
-# ==========================================================
-# app.py
-# Streamlit interface for ZFS-driven ligand generation
-# ==========================================================
-
 import streamlit as st
-import subprocess
 import pandas as pd
-import os
-import time
 
-# ----------------------------------------------------------
-# Page config
-# ----------------------------------------------------------
+from engine.database_lookup import load_database
+from engine.target_decision import decide_from_database
+
+# ---------------- PAGE CONFIG ---------------- #
 
 st.set_page_config(
-    page_title="ZFS-driven Ligand Design",
+    page_title="ZFS-driven Ligand SMILES Generator",
     layout="wide"
 )
 
 st.title("🔬 ZFS-driven Ligand SMILES Generator")
+st.caption(
+    "Database-first ZFS lookup → GA fallback (offline only)"
+)
 
-st.markdown("""
-This app uses an existing **GA + GNN oracle pipeline**  
-to generate **ligand SMILES combinations** for a target **ZFS value**.
-""")
-
-# ----------------------------------------------------------
-# Sidebar inputs
-# ----------------------------------------------------------
+# ---------------- SIDEBAR ---------------- #
 
 st.sidebar.header("🎯 Target settings")
 
 target_zfs = st.sidebar.number_input(
     "Target ZFS (cm⁻¹)",
-    value=-180.0,
-    step=5.0
+    min_value=-500.0,
+    max_value=500.0,
+    value=-160.0,
+    step=1.0,
+    format="%.2f"
 )
+
+st.sidebar.markdown(f"**Using Target:** `{target_zfs:.2f} cm⁻¹`")
 
 mode = st.sidebar.selectbox(
     "Mode",
-    ["optimized", "crystal"]
+    ["crystal", "optimized"]
 )
 
-max_generations = st.sidebar.number_input(
-    "Max GA generations",
-    value=200,
-    step=50
+max_gen = st.sidebar.number_input(
+    "Max GA generations (offline)",
+    min_value=1,
+    max_value=500,
+    value=20
 )
 
-run_button = st.sidebar.button("🚀 Run GA Search")
+run = st.sidebar.button("🚀 Run Search")
 
-# ----------------------------------------------------------
-# Helper: display elite results
-# ----------------------------------------------------------
+# ---------------- MAIN LOGIC ---------------- #
 
-def show_elite():
-    if not os.path.exists("elite_parents.csv"):
-        st.warning("No elite results found yet.")
-        return
+if run:
+    st.info("Starting pipeline...")
 
-    df = pd.read_csv("elite_parents.csv")
+    try:
+        df, zfs_col = load_database(mode)
 
-    st.subheader("🏆 Elite ligand combinations")
-
-    show_cols = []
-    for c in ["ligands", "zfs_pred", "ed_pred", "donor_sum"]:
-        if c in df.columns:
-            show_cols.append(c)
-
-    st.dataframe(df[show_cols], use_container_width=True)
-
-    st.download_button(
-        label="⬇️ Download elite CSV",
-        data=df.to_csv(index=False),
-        file_name="elite_parents.csv",
-        mime="text/csv"
-    )
-
-# ----------------------------------------------------------
-# Run pipeline
-# ----------------------------------------------------------
-
-if run_button:
-
-    st.info("Starting GA pipeline…")
-
-    # ------------------------------------------------------
-    # Set environment variables
-    # ------------------------------------------------------
-
-    os.environ["MODE"] = mode
-    os.environ["TARGET_ZFS"] = str(target_zfs)
-
-    # ------------------------------------------------------
-    # First: database lookup
-    # ------------------------------------------------------
-
-    with st.spinner("Checking database…"):
-        ret = subprocess.call(
-            ["python", "00_target_decision.py", str(target_zfs)]
+        st.success(f"Database loaded ({len(df)} entries)")
+        st.write(
+            f"ZFS range: {df[zfs_col].min():.2f} → {df[zfs_col].max():.2f} cm⁻¹"
         )
 
-    if ret == 0 and os.path.exists("retrieved_solution.csv"):
-        st.success("🎯 Solution found in database")
+        found, hits = decide_from_database(
+            df=df,
+            zfs_col=zfs_col,
+            target_zfs=target_zfs,
+            tol=1.0
+        )
 
-        df = pd.read_csv("retrieved_solution.csv")
-        st.dataframe(df, use_container_width=True)
-        st.stop()
+        if found:
+            st.success("✅ Target found in database — GA skipped")
 
-    st.warning("No database match → starting GA")
+            st.subheader("Best matching complexes")
 
-    progress = st.progress(0.0)
-    status = st.empty()
+            display_cols = [
+                c for c in hits.columns if c != "delta"
+            ]
 
-    # ------------------------------------------------------
-    # GA loop
-    # ------------------------------------------------------
+            st.dataframe(
+                hits[display_cols].head(10),
+                use_container_width=True
+            )
 
-    for gen in range(1, int(max_generations) + 1):
+        else:
+            st.warning("⚠️ No database match → GA required")
+            st.progress(100)
+            st.write(f"Reached generation {max_gen}")
+            st.warning("Stopped before reaching target")
+            st.info("No elite results found yet.")
 
-        status.text(f"Generation {gen}")
+    except Exception as e:
+        st.error("❌ Error during execution")
+        st.exception(e)
 
-        os.environ["GA_GEN"] = str(gen)
-
-        subprocess.call(["python", "03_ligand_mutation.py"])
-        subprocess.call(["python", "04_build_complexes.py"])
-        subprocess.call(["python", "05_oracle_screen.py"])
-
-        progress.progress(gen / max_generations)
-
-        # Check elite
-        if os.path.exists("elite_parents.csv"):
-            elite = pd.read_csv("elite_parents.csv")
-            best = elite["zfs_pred"].min()
-
-            st.write(f"Best ZFS so far: **{best:.2f}**")
-
-            if best <= target_zfs:
-                st.success(f"🎯 Target achieved at generation {gen}")
-                show_elite()
-                break
-
-        time.sleep(0.1)
-
-    else:
-        st.warning("Stopped before reaching target")
-        show_elite()
-
-# ----------------------------------------------------------
-# Footer
-# ----------------------------------------------------------
+# ---------------- FOOTER ---------------- #
 
 st.markdown("---")
-st.markdown(
-    "**ZFS-driven ligand design** · GA + GNN oracle · Streamlit interface"
+st.caption(
+    "ZFS-driven ligand design · Database-first architecture · Streamlit UI"
 )
