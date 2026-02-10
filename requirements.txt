@@ -1,16 +1,4 @@
-name: zfs-ligand
-channels:
-  - conda-forge
-  - pyg
-dependencies:
-  - python=3.10
-  - rdkit
-  - pytorch
-  - pyg
-  - numpy
-  - pandas
-  - scikit-learn
-  - streamlit
-  - pip
-  - pip:
-      - torch-geometric
+streamlit==1.54.0
+numpy>=1.26
+pandas>=2.0
+scikit-learn>=1.4
