@@ -1,17 +1,13 @@
 streamlit==1.54.0
 
-# Core
-numpy
-pandas
-scikit-learn
+numpy<2
+pandas<2
+scikit-learn<2
 
-# PyTorch (CPU)
 torch==2.1.2
 
-# PyG stack (CPU wheels exist for py3.10)
 torch-geometric==2.5.2
 torch-scatter==2.1.2
 torch-sparse==0.6.18
 
-# Chemistry
 rdkit-pypi==2022.9.5
