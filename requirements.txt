@@ -1,13 +1,16 @@
-streamlit==1.54.0
-
-numpy<2
-pandas<2
-scikit-learn<2
-
-torch==2.1.2
-
-torch-geometric==2.5.2
-torch-scatter==2.1.2
-torch-sparse==0.6.18
-
-rdkit-pypi==2022.9.5
+name: zfs-ligand
+channels:
+  - conda-forge
+  - pyg
+dependencies:
+  - python=3.10
+  - rdkit
+  - pytorch
+  - pyg
+  - numpy
+  - pandas
+  - scikit-learn
+  - streamlit
+  - pip
+  - pip:
+      - torch-geometric
