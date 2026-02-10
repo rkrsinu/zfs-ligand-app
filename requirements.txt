@@ -1,4 +1,7 @@
-streamlit==1.54.0
-numpy>=1.26
-pandas>=2.0
-scikit-learn>=1.4
+streamlit
+pandas
+numpy
+torch
+torch-geometric
+scikit-learn
+rdkit-pypi
