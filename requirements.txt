@@ -1,7 +1,6 @@
 streamlit
-pandas
-numpy
-torch
-torch-geometric
+numpy<2.0
+pandas<3.0
 scikit-learn
-rdkit-pypi
+torch==2.1.2
+rdkit-pypi==2022.9.5
