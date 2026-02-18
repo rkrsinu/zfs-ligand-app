@@ -4,3 +4,7 @@ pandas<3.0
 scikit-learn
 torch==2.1.2
 rdkit-pypi==2022.9.5
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
