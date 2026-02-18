@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "zfs-ligand-app",
+  "private_key_id": "ae10bd1536bb57524e2742c7560937f7f7d95192",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCXaaYnpKF02Lbn\n8aPkEEcehKZ4ArLV7Yo3yoBAtIGgW2dX8IYFDgg/XDgyHSwhY2IkaTEB0kwvSB1h\n0OgvlvqL7aL2iMFgLv04ah3UbLvgY/320GBw8V3O3ZbXmQ8yD22WHDDxMBTPZt8R\nY6bjMNf6i7un/Pjarcr8F5/HW0CElKHsFtTsB3pudKZ8Y9zZe8zXTybXMo8wVmDV\nuHcnAHlNXhsEpyu0yKPJOQ+l/7SXLx2xqdL/4Oj7ODWwr2iE16FXCl77FlW/jL7+\nlHAHsH6Qf0VyQ5Og1JLTYBGTNdwDWA4BqNg3dYXhF7vpoCwsHMLCNLZ4bqeiMpL8\nmZ8omwoZAgMBAAECggEARZ3FT//hXlyQCGfxX1heorkB4zb2a+b6QHmia12zJfww\nsV28+REBGMS5b80676UGyE/3QOukrK6fF8zaHJtx2ilqXqj1JFimg6xCx9swrNS8\nvaEEXpmTdJwskTdmJbGzRKv0ksh1IQEe+htT7ayU+TULFIt7DeyPYkYoaBxcNzh8\nhShRkie5WmkqTIPdE/r02KUOiXI5D9S4DLXpFwfm8XpJF3INZ53+P5FCOBopAEGm\ntdEcHqU7o97Ra2L9K4Bdv7BWgo96efaLn+TQ2QateJES/+frupD0YgY2lotC3wYu\nBBUTOGanMOSlYGfbD2pzir6LQIBD4p5Ut/nw6AOg6wKBgQDHdVHFHJQT6/71lmDR\nlufsyWi7cWZys/xPoKSrhGCiUZO8nNannYolE9o3gQI4BhIrpvLJhPLyXluZBZSd\n6y32vLxidBFpdgpqnjHEcocuNYFh82kavO22MNXiItvkm+r1gt5+sa+zWMGmQjB9\nsG8MOLGws+6aHPDPIvGFhjZZFwKBgQDCVam4Za4ADaEjBWtlsNgu2QtRzLwN2wJ/\nZyBhIvMMR18c4kWbRBPPFA1OvjEgo34R4mmSoVCbEuG0/pBj0n/aJ0DuUayUOW0l\nAR9WwfFNEMNzHPT07vUhiT83opjQnSypwjd2i2B2XHLDn0/yHa9g6ir8Fyj4wxMn\ndxmB6HZUTwKBgDE9akFiC8BbS2bvh9lWCs1u73cOyL7aZhh2TRC2rnCD+RfgFDHu\n93Kt0vpO0/Bmt0elgFx1gNCKsMw3D3ho3cEC2PLpOn8xj+LASQL5Txv+Q4Gd6L2c\nFIccyUB5YJWwVDHl6+2VCg4ZhDz6LCRrUQ7QVDWORgIv0NciBkPzXSljAoGAPrBN\niItcXu4GnfqAk5RBmJMxYJjPzRRqMNj+i/cvOjXHy9R+KcEDNti8FjuqM2IqJ/DG\np6NcEjo8DxvTTjA4SBJDkt1L86C2waokBuOXSInw0rBzoJN5BfF1MChGbX1WTAi3\nxYjefDAEYXCB5JOI4JWJejqqX9zlz+ROmSZ5DWcCgYAOvFhQl4MjyLChvaex2H7f\n+WqaTBPLzQgRyI9RDa9KjhKO45qpCjZtqnMJcVnKhQ+nCPpjmy7qPzCVCeM+ZbfA\nWlpHQjxVZstjvQzSIiD5PmY3Jp0yHZBqoQZ3O/jWjjRH1YWgDdv0PEK1an+66esH\nAImYOMEgil/TVPIQoDH2iA==\n-----END PRIVATE KEY-----\n",
+  "client_email": "streamlit-drive-access@zfs-ligand-app.iam.gserviceaccount.com",
+  "client_id": "110768864176178447135",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-drive-access%40zfs-ligand-app.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
