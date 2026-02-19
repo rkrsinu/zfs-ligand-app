@@ -1,0 +1,17 @@
+[global]
+disableWatchdogWarning = true
+
+[server]
+headless = true
+
+[client]
+showErrorDetails = true
+
+[runner]
+fastReruns = true
+
+[theme]
+base="light"
+
+[package]
+installer = "pip"
