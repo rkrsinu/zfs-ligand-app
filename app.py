@@ -1,63 +1,151 @@
 import streamlit as st
-import os
 import subprocess
+import sys
+import os
 import pandas as pd
 
 from gdrive_save import (
-    prepare_drive_folders,
-    upload_generation_outputs,
-    upload_elite,
-    download_previous_state,
+    download_pipeline_from_drive,
+    upload_pipeline_to_drive,
 )
 
-st.set_page_config(layout="wide")
+PYTHON = sys.executable
+
+st.set_page_config(page_title="ZFS-driven Ligand SMILES Generator", layout="wide")
 
 st.title("🔬 ZFS-driven Ligand SMILES Generator")
+st.write("GA + GNN oracle pipeline for target ZFS")
 
-target_zfs = st.number_input("Target ZFS", value=-180.0)
-mode = st.selectbox("Mode", ["crystal", "optimized"])
-max_gen = st.number_input("Max GA generations", value=5)
+# ================= SIDEBAR =================
 
-if st.button("🚀 Run"):
+st.sidebar.header("🎯 Target settings")
+
+target_zfs = st.sidebar.number_input("Target ZFS (cm⁻¹)", value=-180.0)
+mode = st.sidebar.selectbox("Mode", ["crystal", "optimized"])
+max_gen = st.sidebar.number_input("Max GA generations", 1, 1000, 5)
+
+run = st.sidebar.button("🚀 Run")
+
+
+# ================= SAFE SUBPROCESS RUNNER =================
+
+def run_step(script):
+    result = subprocess.run(
+        [PYTHON, script],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        st.error(f"❌ {script} failed")
+        st.code(result.stderr)
+        st.stop()
+
+    if result.stdout:
+        st.text(result.stdout)
+
+
+# ================= RUN =================
+
+if run:
+
+    os.environ["MODE"] = mode
+    os.environ["TARGET_ZFS"] = str(target_zfs)
 
     st.info("Checking database...")
 
-    previous = download_previous_state(target_zfs, mode)
+    db_ret = subprocess.call([PYTHON, "00_target_decision.py", str(target_zfs)])
 
-    if previous:
-        st.success("Previous state found → continuing GA")
-    else:
-        st.info("No previous state found → fresh GA run")
+    if db_ret == 0:
+        st.success("🎯 Direct database match found")
+        df = pd.read_csv("retrieved_solution.csv")
+        st.dataframe(df)
+        st.stop()
+
+    st.warning("No valid database match → starting GA")
+
+    # ================= RESTORE STATE =================
+
+    first_run = True
+
+    try:
+        restored = download_pipeline_from_drive(target_zfs, mode)
+
+        if restored:
+            st.success("Previous GA state restored from Drive")
+            first_run = False
+        else:
+            st.info("No previous state found → fresh GA run")
+
+    except Exception as e:
+        st.warning(f"Drive restore skipped: {e}")
+
+    progress = st.progress(0)
+
+    # ================= GA LOOP =================
 
     for gen in range(1, int(max_gen) + 1):
 
+        progress.progress(gen / max_gen)
         st.subheader(f"Generation {gen}")
 
-        if gen == 1 and not previous:
+        # ===== FIRST RUN INITIALIZATION =====
+        if gen == 1 and first_run:
+
             st.write("Building donor map")
-            subprocess.run(["python", "00_build_ligand_donor_map.py"])
+            run_step("00_build_ligand_donor_map.py")
 
             st.write("Selecting seed complexes")
-            subprocess.run(["python", "01_select_seeds.py"])
+            run_step("01_select_seeds.py")
 
             st.write("Extracting seed ligands")
-            subprocess.run(["python", "02_extract_seed_ligands.py"])
+            run_step("02_extract_seed_ligands.py")
 
-        subprocess.run(["python", "03_ligand_mutation.py"])
-        subprocess.run(["python", "04_build_complexes.py"])
-        subprocess.run(["python", "05_oracle_screen.py", str(target_zfs), mode])
+        # ===== GA CORE =====
 
-        upload_generation_outputs(target_zfs, mode)
+        run_step("03_ligand_mutation.py")
+        run_step("04_build_complexes.py")
+        run_step("05_oracle_screen.py")
+
+        # ===== CHECK ELITE =====
 
         if os.path.exists("elite_parents.csv"):
-            st.success("Elite found in this generation")
-            upload_elite(target_zfs, mode)
-            break
+
+            elite = pd.read_csv("elite_parents.csv")
+
+            if not elite.empty:
+
+                best = elite["zfs_pred"].min()
+                st.success(f"Best ZFS so far: {best:.2f}")
+
+                if best <= target_zfs:
+                    st.success("🎯 Target achieved")
+                    break
+
         else:
             st.warning("elite_parents.csv not created in this generation")
 
+        # ===== SAVE STATE TO DRIVE =====
+
+        try:
+            upload_pipeline_to_drive(target_zfs, mode)
+            st.write("☁️ GA state saved to Drive")
+
+        except Exception as e:
+            st.error(f"Drive upload failed: {e}")
+
+    # ================= FINAL DISPLAY =================
+
+    st.subheader("🏆 Elite ligand combinations")
+
     if os.path.exists("elite_parents.csv"):
-        df = pd.read_csv("elite_parents.csv")
-        st.dataframe(df)
+
+        elite = pd.read_csv("elite_parents.csv")
+
+        if not elite.empty:
+            st.dataframe(elite)
+        else:
+            st.warning("Elite file exists but empty")
+
     else:
-        st.warning("No elite results found yet.")
+        st.warning("No elite results found")
