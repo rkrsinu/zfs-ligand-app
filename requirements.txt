@@ -1,4 +1,5 @@
 streamlit
+
 numpy<2.0
 pandas<3.0
 scikit-learn
@@ -6,11 +7,13 @@ protobuf<4
 
 torch==2.1.2
 
+--find-links https://data.pyg.org/whl/torch-2.1.2+cpu.html
+
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
 torch-geometric==2.5.3
-torch-scatter==2.1.2
-torch-sparse==0.6.18
-torch-cluster==1.6.3
-torch-spline-conv==1.2.2
 
 rdkit-pypi==2022.9.5
 
