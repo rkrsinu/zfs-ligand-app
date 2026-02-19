@@ -1,9 +1,8 @@
-import io
 import os
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
@@ -59,12 +58,9 @@ def get_or_create_folder(name, parent):
     return folder["id"]
 
 
-# ================= PATH RESOLVER =================
-
 def get_target_folder(target, mode):
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
-    target_folder = get_or_create_folder(str(int(target)), mode_folder)
-    return target_folder
+    return get_or_create_folder(str(int(target)), mode_folder)
 
 
 # ================= DOWNLOAD =================
@@ -90,16 +86,13 @@ def download_pipeline_from_drive(target, mode):
 
         restored = True
 
-        file_id = res["files"][0]["id"]
+        request = service.files().get_media(fileId=res["files"][0]["id"])
 
-        request = service.files().get_media(fileId=file_id)
-        fh = io.FileIO(file, "wb")
-
-        downloader = MediaIoBaseDownload(fh, request)
-
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
+        with open(file, "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
 
     return restored
 
@@ -115,17 +108,10 @@ def upload_pipeline_to_drive(target, mode):
         if not os.path.exists(file):
             continue
 
-        media = MediaIoBaseUpload(
-            io.BytesIO(open(file, "rb").read()),
-            mimetype="text/csv",
-            resumable=True,
-        )
+        media = MediaFileUpload(file, mimetype="text/csv", resumable=False)
 
         service.files().create(
-            body={
-                "name": file,
-                "parents": [folder],
-            },
+            body={"name": file, "parents": [folder]},
             media_body=media,
             fields="id",
             supportsAllDrives=True,
