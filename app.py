@@ -39,15 +39,12 @@ if run:
 
     if db_ret == 0:
         st.success("🎯 Direct database match found")
-        df = pd.read_csv("retrieved_solution.csv")
-        st.dataframe(df)
+        st.dataframe(pd.read_csv("retrieved_solution.csv"))
         st.stop()
 
     st.warning("No valid database match → starting GA")
 
-    # ================= RESTORE STATE =================
-
-    first_run = True
+    # ========= RESTORE =========
 
     restored = download_pipeline_from_drive(target_zfs, mode)
 
@@ -56,10 +53,11 @@ if run:
         first_run = False
     else:
         st.info("🆕 Fresh GA run")
+        first_run = True
 
     progress = st.progress(0)
 
-    # ================= GA LOOP =================
+    # ========= GA LOOP =========
 
     for gen in range(1, int(max_gen) + 1):
 
@@ -68,7 +66,6 @@ if run:
         progress.progress(gen / max_gen)
         st.subheader(f"Generation {gen}")
 
-        # ===== FIRST RUN INITIALIZATION =====
         if gen == 1 and first_run:
 
             st.write("Building donor map")
@@ -80,13 +77,11 @@ if run:
             st.write("Extracting seed ligands")
             subprocess.call([PYTHON, "02_extract_seed_ligands.py"])
 
-        # ===== GA CORE =====
-
         subprocess.call([PYTHON, "03_ligand_mutation.py"])
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # ===== SHOW BEST RESULT =====
+        # ===== SHOW BEST =====
 
         if os.path.exists("elite_parents.csv"):
 
@@ -99,34 +94,25 @@ if run:
 
                 if best <= target_zfs:
                     st.success("🎯 Target achieved")
+                    upload_pipeline_to_drive(target_zfs, mode)
                     break
 
-        # ===== SAVE STATE TO DRIVE =====
+        # ===== SAVE STATE =====
 
-        existing = any(
-            os.path.exists(f)
-            for f in [
-                "ligand_donor_modes.csv",
-                "seed_complexes.csv",
-                "seed_ligands.csv",
-                "mutated_ligands.csv",
-                "mutation_lineage.csv",
-                "generated_complexes.csv",
-                "elite_parents.csv",
-            ]
-        )
-
-        if existing:
+        if any(os.path.exists(f) for f in [
+            "mutated_ligands.csv",
+            "mutation_lineage.csv",
+            "generated_complexes.csv",
+            "elite_parents.csv",
+        ]):
             upload_pipeline_to_drive(target_zfs, mode)
             st.write("☁️ GA state saved")
 
-    # ================= FINAL DISPLAY =================
+    # ========= FINAL DISPLAY =========
 
     st.subheader("🏆 Elite ligand combinations")
 
     if os.path.exists("elite_parents.csv"):
-
         elite = pd.read_csv("elite_parents.csv")
-
         if not elite.empty:
             st.dataframe(elite)
