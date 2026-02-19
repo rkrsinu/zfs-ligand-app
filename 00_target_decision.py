@@ -1,6 +1,7 @@
 # ==========================================================
 # 00_target_decision.py
 # Direct database hit within ±10 cm⁻¹
+# NUMERIC FILENAMES ONLY
 # ==========================================================
 
 import os
@@ -30,16 +31,33 @@ print(f"[INFO] Target = {TARGET_ZFS}")
 
 df = pd.read_csv(CSV_FILE)
 
+# Ensure numeric ZFS
 df[ZFS_COL] = pd.to_numeric(df[ZFS_COL], errors="coerce")
 df = df.dropna(subset=[ZFS_COL])
 
+# Distance from target
 df["dist"] = (df[ZFS_COL] - TARGET_ZFS).abs()
 
+# Hit within tolerance
 hits = df[df["dist"] <= TOL].copy()
 
+# =========================
+# ⭐ KEEP ONLY NUMERIC FILENAMES
+# =========================
+if "FileName" in hits.columns:
+    hits = hits[
+        hits["FileName"].astype(str).str.fullmatch(r"\d+")
+    ]
+
+# =========================
+
 if len(hits) > 0:
-    hits = hits.sort_values("dist")
-    hits.to_csv(os.path.join(BASE_DIR, "retrieved_solution.csv"), index=False)
+    hits = hits.sort_values("dist").reset_index(drop=True)
+
+    hits.to_csv(
+        os.path.join(BASE_DIR, "retrieved_solution.csv"),
+        index=False
+    )
 
     print("🎯 DATABASE HIT")
     sys.exit(0)
