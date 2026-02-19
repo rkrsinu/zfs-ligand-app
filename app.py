@@ -49,23 +49,21 @@ if run:
 
     first_run = True
 
-    try:
-        restored = download_pipeline_from_drive(target_zfs, mode)
+    restored = download_pipeline_from_drive(target_zfs, mode)
 
-        if restored:
-            st.success("Previous GA state restored from Drive")
-            first_run = False
-        else:
-            st.info("No previous state found → fresh GA run")
-
-    except Exception as e:
-        st.warning(f"Drive restore skipped: {e}")
+    if restored:
+        st.success("♻️ Resuming previous GA run")
+        first_run = False
+    else:
+        st.info("🆕 Fresh GA run")
 
     progress = st.progress(0)
 
     # ================= GA LOOP =================
 
     for gen in range(1, int(max_gen) + 1):
+
+        os.environ["GA_GEN"] = str(gen)
 
         progress.progress(gen / max_gen)
         st.subheader(f"Generation {gen}")
@@ -101,18 +99,26 @@ if run:
 
                 if best <= target_zfs:
                     st.success("🎯 Target achieved")
-
-        else:
-            st.warning("elite_parents.csv not created in this generation")
+                    break
 
         # ===== SAVE STATE TO DRIVE =====
 
-        try:
-            upload_pipeline_to_drive(target_zfs, mode)
-            st.write("☁️ GA state saved to Drive")
+        existing = any(
+            os.path.exists(f)
+            for f in [
+                "ligand_donor_modes.csv",
+                "seed_complexes.csv",
+                "seed_ligands.csv",
+                "mutated_ligands.csv",
+                "mutation_lineage.csv",
+                "generated_complexes.csv",
+                "elite_parents.csv",
+            ]
+        )
 
-        except Exception as e:
-            st.error(f"Drive upload failed: {e}")
+        if existing:
+            upload_pipeline_to_drive(target_zfs, mode)
+            st.write("☁️ GA state saved")
 
     # ================= FINAL DISPLAY =================
 
@@ -124,8 +130,3 @@ if run:
 
         if not elite.empty:
             st.dataframe(elite)
-        else:
-            st.warning("Elite file exists but empty")
-
-    else:
-        st.warning("No elite results found")
