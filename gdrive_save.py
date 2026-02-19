@@ -17,6 +17,7 @@ PIPELINE_FILES = [
     "elite_parents.csv",
 ]
 
+# ===== AUTH =====
 creds = service_account.Credentials.from_service_account_info(
     st.secrets["GCP_SERVICE_ACCOUNT"], scopes=SCOPES
 )
@@ -26,10 +27,21 @@ service = build("drive", "v3", credentials=creds)
 ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
 
 
+# ===== FOLDER =====
 def get_or_create_folder(name, parent):
 
-    query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and '{parent}' in parents and trashed=false"
-    res = service.files().list(q=query, fields="files(id)").execute()
+    query = (
+        f"name='{name}' and "
+        f"mimeType='application/vnd.google-apps.folder' and "
+        f"'{parent}' in parents and trashed=false"
+    )
+
+    res = service.files().list(
+        q=query,
+        fields="files(id)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
 
     if res["files"]:
         return res["files"][0]["id"]
@@ -47,6 +59,7 @@ def get_or_create_folder(name, parent):
     return folder["id"]
 
 
+# ===== DOWNLOAD =====
 def download_pipeline_from_drive(target, mode):
 
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
@@ -57,18 +70,18 @@ def download_pipeline_from_drive(target, mode):
     for file in PIPELINE_FILES:
 
         query = f"name='{file}' and '{target_folder}' in parents and trashed=false"
+
         res = service.files().list(
             q=query,
             fields="files(id)",
-            includeItemsFromAllDrives=True,
             supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
         ).execute()
 
         if not res["files"]:
             continue
 
         found = True
-
         file_id = res["files"][0]["id"]
 
         request = service.files().get_media(fileId=file_id)
@@ -83,6 +96,7 @@ def download_pipeline_from_drive(target, mode):
     return found
 
 
+# ===== UPLOAD =====
 def upload_pipeline_to_drive(target, mode):
 
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
@@ -94,22 +108,25 @@ def upload_pipeline_to_drive(target, mode):
             continue
 
         query = f"name='{file}' and '{target_folder}' in parents and trashed=false"
+
         res = service.files().list(
             q=query,
             fields="files(id)",
-            includeItemsFromAllDrives=True,
             supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
         ).execute()
 
+        # delete old version
         for f in res.get("files", []):
             service.files().delete(
                 fileId=f["id"],
-                supportsAllDrives=True
+                supportsAllDrives=True,
             ).execute()
 
         media = MediaIoBaseUpload(
             io.BytesIO(open(file, "rb").read()),
             mimetype="text/csv",
+            resumable=True,
         )
 
         service.files().create(
