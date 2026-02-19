@@ -25,7 +25,7 @@ service = build("drive", "v3", credentials=creds)
 ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
 
 
-# ================= FOLDER =================
+# ========= FOLDER =========
 
 def get_or_create_folder(name, parent):
 
@@ -63,7 +63,7 @@ def get_target_folder(target, mode):
     return get_or_create_folder(str(int(target)), mode_folder)
 
 
-# ================= DOWNLOAD =================
+# ========= DOWNLOAD =========
 
 def download_pipeline_from_drive(target, mode):
 
@@ -97,7 +97,7 @@ def download_pipeline_from_drive(target, mode):
     return restored
 
 
-# ================= UPLOAD =================
+# ========= UPLOAD =========
 
 def upload_pipeline_to_drive(target, mode):
 
