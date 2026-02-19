@@ -1,5 +1,4 @@
 import os
-import io
 import streamlit as st
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -42,7 +41,12 @@ def get_or_create_folder(name, parent):
         f"'{parent}' in parents and trashed=false"
     )
 
-    res = service.files().list(q=query, fields="files(id)").execute()
+    res = service.files().list(
+        q=query,
+        fields="files(id)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
 
     if res["files"]:
         return res["files"][0]["id"]
@@ -54,6 +58,7 @@ def get_or_create_folder(name, parent):
             "parents": [parent],
         },
         fields="id",
+        supportsAllDrives=True,
     ).execute()
 
     return folder["id"]
@@ -73,7 +78,13 @@ def download_pipeline_from_drive(target, mode):
     for file in PIPELINE_FILES:
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
-        res = service.files().list(q=query, fields="files(id)").execute()
+
+        res = service.files().list(
+            q=query,
+            fields="files(id)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
 
         if not res["files"]:
             continue
@@ -90,7 +101,7 @@ def download_pipeline_from_drive(target, mode):
 
     return restored
 
-# ================= UPLOAD (OVERWRITE MODE) =================
+# ================= UPLOAD (TRUE OVERWRITE) =================
 
 def upload_pipeline_to_drive(target, mode):
 
@@ -102,23 +113,33 @@ def upload_pipeline_to_drive(target, mode):
             continue
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
-        res = service.files().list(q=query, fields="files(id)").execute()
+
+        res = service.files().list(
+            q=query,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
 
         media = MediaFileUpload(file, mimetype="text/csv", resumable=False)
 
-        # 🔁 UPDATE existing file
-        if res["files"]:
+        # 🔁 UPDATE existing
+        if len(res["files"]) > 0:
+
             file_id = res["files"][0]["id"]
 
             service.files().update(
                 fileId=file_id,
                 media_body=media,
+                supportsAllDrives=True,
             ).execute()
 
         # 🆕 CREATE if not exists
         else:
+
             service.files().create(
                 body={"name": file, "parents": [folder]},
                 media_body=media,
                 fields="id",
+                supportsAllDrives=True,
             ).execute()
