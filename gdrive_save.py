@@ -73,7 +73,6 @@ def download_pipeline_from_drive(target, mode):
     for file in PIPELINE_FILES:
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
-
         res = service.files().list(q=query, fields="files(id)").execute()
 
         if not res["files"]:
@@ -91,7 +90,7 @@ def download_pipeline_from_drive(target, mode):
 
     return restored
 
-# ================= UPLOAD =================
+# ================= UPLOAD (OVERWRITE MODE) =================
 
 def upload_pipeline_to_drive(target, mode):
 
@@ -102,10 +101,24 @@ def upload_pipeline_to_drive(target, mode):
         if not os.path.exists(file):
             continue
 
+        query = f"name='{file}' and '{folder}' in parents and trashed=false"
+        res = service.files().list(q=query, fields="files(id)").execute()
+
         media = MediaFileUpload(file, mimetype="text/csv", resumable=False)
 
-        service.files().create(
-            body={"name": file, "parents": [folder]},
-            media_body=media,
-            fields="id",
-        ).execute()
+        # 🔁 UPDATE existing file
+        if res["files"]:
+            file_id = res["files"][0]["id"]
+
+            service.files().update(
+                fileId=file_id,
+                media_body=media,
+            ).execute()
+
+        # 🆕 CREATE if not exists
+        else:
+            service.files().create(
+                body={"name": file, "parents": [folder]},
+                media_body=media,
+                fields="id",
+            ).execute()
