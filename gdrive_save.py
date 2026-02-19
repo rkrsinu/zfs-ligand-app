@@ -1,196 +1,118 @@
+import streamlit as st
+import os
 import io
 import json
-import pandas as pd
-import streamlit as st
-
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
-# =========================================================
-# AUTHENTICATION
-# =========================================================
-
+# ================== AUTH ==================
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-service_account_info = dict(st.secrets["GCP_SERVICE_ACCOUNT"])
-
 creds = service_account.Credentials.from_service_account_info(
-    service_account_info,
+    st.secrets["GCP_SERVICE_ACCOUNT"],
     scopes=SCOPES,
 )
 
 service = build("drive", "v3", credentials=creds)
 
-# 🔍 DEBUG — WHO IS THE ACTIVE DRIVE USER
 about = service.about().get(fields="user").execute()
 print("DRIVE USER:", about)
 
+
 ROOT_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
 
+# ================== HELPERS ==================
+def _get_or_create_folder(name, parent):
+    query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and '{parent}' in parents and trashed=false"
+    res = service.files().list(q=query, fields="files(id)").execute()
 
-# =========================================================
-# HELPERS
-# =========================================================
+    if res["files"]:
+        return res["files"][0]["id"]
 
-def get_or_create_folder(name, parent_id):
-    query = (
-        f"name='{name}' and mimeType='application/vnd.google-apps.folder' "
-        f"and '{parent_id}' in parents and trashed=false"
-    )
-
-    results = service.files().list(
-        q=query,
-        spaces="drive",
-        fields="files(id, name)",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-    ).execute()
-
-    files = results.get("files", [])
-
-    if files:
-        return files[0]["id"]
-
-    folder_metadata = {
+    file_metadata = {
         "name": name,
         "mimeType": "application/vnd.google-apps.folder",
-        "parents": [parent_id],
+        "parents": [parent],
     }
 
     folder = service.files().create(
-        body=folder_metadata,
-        fields="id",
+        body=file_metadata,
         supportsAllDrives=True,
+        fields="id",
     ).execute()
 
-    return folder.get("id")
+    return folder["id"]
 
 
-def upload_df(df, filename, folder_id):
-    buffer = io.BytesIO()
-    df.to_csv(buffer, index=False)
-    buffer.seek(0)
+def _upload_file(local_path, drive_folder_id):
+    if not os.path.exists(local_path):
+        return
 
-    media = MediaIoBaseUpload(buffer, mimetype="text/csv", resumable=True)
+    file_name = os.path.basename(local_path)
 
-    file_metadata = {
-        "name": filename,
-        "parents": [folder_id],
-    }
+    media = MediaIoBaseUpload(open(local_path, "rb"), resumable=True)
 
     service.files().create(
-        body=file_metadata,
+        body={"name": file_name, "parents": [drive_folder_id]},
         media_body=media,
         fields="id",
         supportsAllDrives=True,
     ).execute()
 
 
-# =========================================================
-# PUBLIC FUNCTIONS
-# =========================================================
-
+# ================== PUBLIC API ==================
 def prepare_drive_folders(target_zfs, mode):
-    try:
-        mode_folder = get_or_create_folder(mode, ROOT_FOLDER_ID)
-        target_folder = get_or_create_folder(str(target_zfs), mode_folder)
-        return target_folder
-    except Exception as e:
-        st.warning(f"Drive folder creation failed: {e}")
-        return None
+    target_folder = _get_or_create_folder(f"{mode}_{target_zfs}", ROOT_FOLDER_ID)
+    return target_folder
 
 
 def upload_generation_outputs(target_zfs, mode):
-    try:
-        folder_id = prepare_drive_folders(target_zfs, mode)
-        if folder_id is None:
-            return
+    folder = prepare_drive_folders(target_zfs, mode)
 
-        files = [
-            "ligand_donor_modes.csv",
-            "seed_complexes.csv",
-            "seed_ligands.csv",
-            "mutated_ligands.csv",
-            "mutation_lineage.csv",
-            "generated_complexes.csv",
-        ]
+    files = [
+        "ligand_donor_modes.csv",
+        "seed_complexes.csv",
+        "seed_ligands.csv",
+        "mutated_ligands.csv",
+        "mutation_lineage.csv",
+        "generated_complexes.csv",
+    ]
 
-        for f in files:
-            try:
-                df = pd.read_csv(f)
-                upload_df(df, f, folder_id)
-            except:
-                pass
-
-    except Exception as e:
-        st.warning(f"Drive upload failed: {e}")
+    for f in files:
+        _upload_file(f, folder)
 
 
 def upload_elite(target_zfs, mode):
-    try:
-        folder_id = prepare_drive_folders(target_zfs, mode)
-        if folder_id is None:
-            return
-
-        df = pd.read_csv("elite_parents.csv")
-        upload_df(df, "elite_parents.csv", folder_id)
-
-    except Exception as e:
-        st.warning(f"Elite upload failed: {e}")
+    folder = prepare_drive_folders(target_zfs, mode)
+    _upload_file("elite_parents.csv", folder)
 
 
 def download_previous_state(target_zfs, mode):
-    try:
-        query = (
-            f"name='{mode}' and '{ROOT_FOLDER_ID}' in parents and trashed=false"
-        )
+    folder_name = f"{mode}_{target_zfs}"
 
-        results = service.files().list(
-            q=query,
-            fields="files(id, name)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
+    query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and '{ROOT_FOLDER_ID}' in parents and trashed=false"
+    res = service.files().list(q=query, fields="files(id)").execute()
 
-        if not results["files"]:
-            return False
-
-        mode_folder_id = results["files"][0]["id"]
-
-        query = (
-            f"name='{target_zfs}' and '{mode_folder_id}' in parents and trashed=false"
-        )
-
-        results = service.files().list(
-            q=query,
-            fields="files(id, name)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
-
-        if not results["files"]:
-            return False
-
-        target_folder_id = results["files"][0]["id"]
-
-        results = service.files().list(
-            q=f"'{target_folder_id}' in parents and trashed=false",
-            fields="files(id, name)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
-
-        for file in results.get("files", []):
-            request = service.files().get_media(fileId=file["id"])
-            fh = io.BytesIO()
-            downloader = MediaIoBaseUpload(fh, mimetype="text/csv")
-            data = request.execute()
-            with open(file["name"], "wb") as f:
-                f.write(data)
-
-        return True
-
-    except Exception as e:
-        st.warning(f"Drive elite download skipped: {e}")
+    if not res["files"]:
         return False
+
+    folder_id = res["files"][0]["id"]
+
+    query = f"'{'elite_parents.csv'}' in name and '{folder_id}' in parents and trashed=false"
+    files = service.files().list(q=query, fields="files(id, name)").execute()
+
+    if not files["files"]:
+        return False
+
+    file_id = files["files"][0]["id"]
+
+    request = service.files().get_media(fileId=file_id)
+    fh = io.FileIO("elite_parents.csv", "wb")
+    downloader = MediaIoBaseDownload(fh, request)
+
+    done = False
+    while done is False:
+        _, done = downloader.next_chunk()
+
+    return True
