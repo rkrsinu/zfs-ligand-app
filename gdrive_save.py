@@ -7,15 +7,6 @@ from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
-
-creds = service_account.Credentials.from_service_account_info(
-    st.secrets["GCP_SERVICE_ACCOUNT"], scopes=SCOPES
-)
-
-service = build("drive", "v3", credentials=creds)
-
-
 PIPELINE_FILES = [
     "ligand_donor_modes.csv",
     "seed_complexes.csv",
@@ -26,7 +17,17 @@ PIPELINE_FILES = [
     "elite_parents.csv",
 ]
 
+# ===== AUTH =====
+creds = service_account.Credentials.from_service_account_info(
+    st.secrets["GCP_SERVICE_ACCOUNT"], scopes=SCOPES
+)
 
+service = build("drive", "v3", credentials=creds)
+
+ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
+
+
+# ===== FOLDER =====
 def get_or_create_folder(name, parent):
 
     query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and '{parent}' in parents and trashed=false"
@@ -43,6 +44,39 @@ def get_or_create_folder(name, parent):
     return folder["id"]
 
 
+# ===== DOWNLOAD =====
+def download_pipeline_from_drive(target, mode):
+
+    mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
+    target_folder = get_or_create_folder(str(int(target)), mode_folder)
+
+    found = False
+
+    for file in PIPELINE_FILES:
+
+        query = f"name='{file}' and '{target_folder}' in parents and trashed=false"
+        res = service.files().list(q=query, fields="files(id)").execute()
+
+        if not res["files"]:
+            continue
+
+        found = True
+
+        file_id = res["files"][0]["id"]
+
+        request = service.files().get_media(fileId=file_id)
+        fh = io.FileIO(file, "wb")
+
+        downloader = MediaIoBaseDownload(fh, request)
+
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+    return found
+
+
+# ===== UPLOAD =====
 def upload_pipeline_to_drive(target, mode):
 
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
@@ -69,28 +103,3 @@ def upload_pipeline_to_drive(target, mode):
             media_body=media,
             fields="id",
         ).execute()
-
-
-def download_pipeline_from_drive(target, mode):
-
-    mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
-    target_folder = get_or_create_folder(str(int(target)), mode_folder)
-
-    for file in PIPELINE_FILES:
-
-        query = f"name='{file}' and '{target_folder}' in parents and trashed=false"
-        res = service.files().list(q=query, fields="files(id)").execute()
-
-        if not res["files"]:
-            continue
-
-        file_id = res["files"][0]["id"]
-
-        request = service.files().get_media(fileId=file_id)
-        fh = io.FileIO(file, "wb")
-
-        downloader = MediaIoBaseDownload(fh, request)
-
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
