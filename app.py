@@ -26,25 +26,6 @@ max_gen = st.sidebar.number_input("Max GA generations", 1, 1000, 5)
 
 run = st.sidebar.button("🚀 Run")
 
-
-# ================= SAFE SUBPROCESS RUNNER =================
-
-def run_step(script):
-    result = subprocess.run(
-        [PYTHON, script],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        st.error(f"❌ {script} failed")
-        st.code(result.stderr)
-        st.stop()
-
-    if result.stdout:
-        st.text(result.stdout)
-
-
 # ================= RUN =================
 
 if run:
@@ -93,21 +74,21 @@ if run:
         if gen == 1 and first_run:
 
             st.write("Building donor map")
-            run_step("00_build_ligand_donor_map.py")
+            subprocess.call([PYTHON, "00_build_ligand_donor_map.py"])
 
             st.write("Selecting seed complexes")
-            run_step("01_select_seeds.py")
+            subprocess.call([PYTHON, "01_select_seeds.py"])
 
             st.write("Extracting seed ligands")
-            run_step("02_extract_seed_ligands.py")
+            subprocess.call([PYTHON, "02_extract_seed_ligands.py"])
 
         # ===== GA CORE =====
 
-        run_step("03_ligand_mutation.py")
-        run_step("04_build_complexes.py")
-        run_step("05_oracle_screen.py")
+        subprocess.call([PYTHON, "03_ligand_mutation.py"])
+        subprocess.call([PYTHON, "04_build_complexes.py"])
+        subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # ===== CHECK ELITE =====
+        # ===== SHOW BEST RESULT =====
 
         if os.path.exists("elite_parents.csv"):
 
@@ -120,7 +101,6 @@ if run:
 
                 if best <= target_zfs:
                     st.success("🎯 Target achieved")
-                    break
 
         else:
             st.warning("elite_parents.csv not created in this generation")
