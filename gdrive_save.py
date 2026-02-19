@@ -1,6 +1,7 @@
 import os
+import io
 import streamlit as st
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -16,16 +17,22 @@ PIPELINE_FILES = [
     "elite_parents.csv",
 ]
 
-creds = service_account.Credentials.from_service_account_info(
-    st.secrets["GCP_SERVICE_ACCOUNT"], scopes=SCOPES
+# ================= AUTH =================
+
+creds = Credentials(
+    None,
+    refresh_token=st.secrets["GDRIVE_REFRESH_TOKEN"],
+    token_uri="https://oauth2.googleapis.com/token",
+    client_id=st.secrets["GDRIVE_CLIENT_ID"],
+    client_secret=st.secrets["GDRIVE_CLIENT_SECRET"],
+    scopes=SCOPES,
 )
 
 service = build("drive", "v3", credentials=creds)
 
 ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
 
-
-# ========= FOLDER =========
+# ================= FOLDER =================
 
 def get_or_create_folder(name, parent):
 
@@ -35,12 +42,7 @@ def get_or_create_folder(name, parent):
         f"'{parent}' in parents and trashed=false"
     )
 
-    res = service.files().list(
-        q=query,
-        fields="files(id)",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-    ).execute()
+    res = service.files().list(q=query, fields="files(id)").execute()
 
     if res["files"]:
         return res["files"][0]["id"]
@@ -52,7 +54,6 @@ def get_or_create_folder(name, parent):
             "parents": [parent],
         },
         fields="id",
-        supportsAllDrives=True,
     ).execute()
 
     return folder["id"]
@@ -62,8 +63,7 @@ def get_target_folder(target, mode):
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
     return get_or_create_folder(str(int(target)), mode_folder)
 
-
-# ========= DOWNLOAD =========
+# ================= DOWNLOAD =================
 
 def download_pipeline_from_drive(target, mode):
 
@@ -74,12 +74,7 @@ def download_pipeline_from_drive(target, mode):
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
 
-        res = service.files().list(
-            q=query,
-            fields="files(id)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
+        res = service.files().list(q=query, fields="files(id)").execute()
 
         if not res["files"]:
             continue
@@ -96,8 +91,7 @@ def download_pipeline_from_drive(target, mode):
 
     return restored
 
-
-# ========= UPLOAD =========
+# ================= UPLOAD =================
 
 def upload_pipeline_to_drive(target, mode):
 
@@ -114,5 +108,4 @@ def upload_pipeline_to_drive(target, mode):
             body={"name": file, "parents": [folder]},
             media_body=media,
             fields="id",
-            supportsAllDrives=True,
         ).execute()
