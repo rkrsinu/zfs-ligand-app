@@ -1,11 +1,4 @@
 import streamlit as st
-from gdrive_save import service
-
-st.success("✅ Drive connected")
-st.write(service.files().list(pageSize=3).execute())
-st.stop()
-
-import streamlit as st
 import subprocess
 import sys
 import os
@@ -123,6 +116,7 @@ if run:
         elite = pd.read_csv("elite_parents.csv")
         if not elite.empty:
             st.dataframe(elite)
+
 
 
 
