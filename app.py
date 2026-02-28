@@ -1,7 +1,6 @@
-import streamlit as st
-
-st.write("SECRETS CONTENT:", st.secrets)
-st.write("SECRETS KEYS:", list(st.secrets.keys()))
+from gdrive_save import service
+st.success("✅ Drive connected")
+st.write(service.files().list(pageSize=3).execute())
 st.stop()
 
 import streamlit as st
@@ -122,6 +121,7 @@ if run:
         elite = pd.read_csv("elite_parents.csv")
         if not elite.empty:
             st.dataframe(elite)
+
 
 
 
