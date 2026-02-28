@@ -1,6 +1,7 @@
 import os
+import io
 import streamlit as st
-from google.oauth2.credentials import Credentials
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -16,14 +17,10 @@ PIPELINE_FILES = [
     "elite_parents.csv",
 ]
 
-# ================= AUTH =================
+# ================= AUTH (PERMANENT) =================
 
-creds = Credentials(
-    None,
-    refresh_token=st.secrets["GDRIVE_REFRESH_TOKEN"],
-    token_uri="https://oauth2.googleapis.com/token",
-    client_id=st.secrets["GDRIVE_CLIENT_ID"],
-    client_secret=st.secrets["GDRIVE_CLIENT_SECRET"],
+creds = Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"],
     scopes=SCOPES,
 )
 
@@ -41,12 +38,7 @@ def get_or_create_folder(name, parent):
         f"'{parent}' in parents and trashed=false"
     )
 
-    res = service.files().list(
-        q=query,
-        fields="files(id)",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-    ).execute()
+    res = service.files().list(q=query, fields="files(id)").execute()
 
     if res["files"]:
         return res["files"][0]["id"]
@@ -58,7 +50,6 @@ def get_or_create_folder(name, parent):
             "parents": [parent],
         },
         fields="id",
-        supportsAllDrives=True,
     ).execute()
 
     return folder["id"]
@@ -78,13 +69,7 @@ def download_pipeline_from_drive(target, mode):
     for file in PIPELINE_FILES:
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
-
-        res = service.files().list(
-            q=query,
-            fields="files(id)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
+        res = service.files().list(q=query, fields="files(id)").execute()
 
         if not res["files"]:
             continue
@@ -101,7 +86,7 @@ def download_pipeline_from_drive(target, mode):
 
     return restored
 
-# ================= UPLOAD (TRUE OVERWRITE) =================
+# ================= UPLOAD (OVERWRITE MODE) =================
 
 def upload_pipeline_to_drive(target, mode):
 
@@ -113,33 +98,23 @@ def upload_pipeline_to_drive(target, mode):
             continue
 
         query = f"name='{file}' and '{folder}' in parents and trashed=false"
-
-        res = service.files().list(
-            q=query,
-            fields="files(id, name)",
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        ).execute()
+        res = service.files().list(q=query, fields="files(id)").execute()
 
         media = MediaFileUpload(file, mimetype="text/csv", resumable=False)
 
-        # 🔁 UPDATE existing
-        if len(res["files"]) > 0:
-
+        # 🔁 UPDATE existing file
+        if res["files"]:
             file_id = res["files"][0]["id"]
 
             service.files().update(
                 fileId=file_id,
                 media_body=media,
-                supportsAllDrives=True,
             ).execute()
 
         # 🆕 CREATE if not exists
         else:
-
             service.files().create(
                 body={"name": file, "parents": [folder]},
                 media_body=media,
                 fields="id",
-                supportsAllDrives=True,
             ).execute()
