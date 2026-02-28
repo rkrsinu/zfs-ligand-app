@@ -26,7 +26,7 @@ creds = Credentials.from_service_account_info(
 
 service = build("drive", "v3", credentials=creds)
 
-ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
+ROOT_FOLDER = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
 
 # ================= FOLDER =================
 
@@ -118,3 +118,4 @@ def upload_pipeline_to_drive(target, mode):
                 media_body=media,
                 fields="id",
             ).execute()
+
