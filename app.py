@@ -1,6 +1,8 @@
 import streamlit as st
-st.write("SECRETS:", st.secrets)
-st.stop()stop()
+
+st.write("SECRETS CONTENT:", st.secrets)
+st.write("SECRETS KEYS:", list(st.secrets.keys()))
+st.stop()
 
 import streamlit as st
 import subprocess
@@ -120,5 +122,6 @@ if run:
         elite = pd.read_csv("elite_parents.csv")
         if not elite.empty:
             st.dataframe(elite)
+
 
 
