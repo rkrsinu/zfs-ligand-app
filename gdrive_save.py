@@ -1,7 +1,7 @@
 import os
 import io
 import streamlit as st
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -17,16 +17,20 @@ PIPELINE_FILES = [
     "elite_parents.csv",
 ]
 
-# ================= AUTH (PERMANENT) =================
+# ================= AUTH =================
 
-creds = Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
+creds = Credentials(
+    None,
+    refresh_token=st.secrets["GDRIVE_REFRESH_TOKEN"],
+    token_uri="https://oauth2.googleapis.com/token",
+    client_id=st.secrets["GDRIVE_CLIENT_ID"],
+    client_secret=st.secrets["GDRIVE_CLIENT_SECRET"],
     scopes=SCOPES,
 )
 
 service = build("drive", "v3", credentials=creds)
 
-ROOT_FOLDER = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
+ROOT_FOLDER = st.secrets["GDRIVE_FOLDER_ID"]
 
 # ================= FOLDER =================
 
@@ -118,4 +122,3 @@ def upload_pipeline_to_drive(target, mode):
                 media_body=media,
                 fields="id",
             ).execute()
-
