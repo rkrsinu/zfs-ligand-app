@@ -54,7 +54,6 @@ if run:
 
         df = pd.read_csv("retrieved_solution.csv")
 
-        # remove 'a' from filename
         if "FileName" in df.columns:
             df["FileName"] = df["FileName"].astype(str).str.replace("a", "", regex=False)
 
@@ -102,64 +101,67 @@ if run:
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # wait for file writing
-        time.sleep(1)
+        # ================= WAIT UNTIL ORACLE FINISHES =================
 
-        # ================= SHOW BEST COMPLEX =================
+        zfs_col = None
+        df = None
 
-        if os.path.exists("generated_complexes.csv"):
+        for _ in range(10):  # try for 10 seconds
 
-            # wait until prediction column appears
-            for _ in range(5):
+            if os.path.exists("generated_complexes.csv"):
 
-                df = pd.read_csv("generated_complexes.csv")
-
-                if not df.empty:
-                    break
-
-                time.sleep(1)
-
-            if not df.empty:
-
-                # detect ZFS column automatically
-                zfs_col = None
-                for c in df.columns:
-                    if "zfs" in c.lower():
-                        zfs_col = c
-                        break
-
-                if zfs_col is None:
-                    st.warning("Prediction column not available yet")
+                try:
+                    df = pd.read_csv("generated_complexes.csv")
+                except:
+                    time.sleep(1)
                     continue
 
-                df["error"] = abs(df[zfs_col] - target_zfs)
+                if not df.empty:
 
-                df = df.sort_values("error")
+                    for c in df.columns:
+                        if "zfs" in c.lower():
+                            zfs_col = c
+                            break
 
-                best = df.iloc[0]
+                    if zfs_col is not None:
+                        break
 
-                st.success(f"Best ZFS so far: {best[zfs_col]:.2f}")
+            time.sleep(1)
 
-                # show best combination only
-                best_table = pd.DataFrame([{
-                    "Ligands": best.get("ligands", "N/A"),
-                    "Donor Pattern": best.get("donor_pattern", "N/A"),
-                    "CN": best.get("CN", "N/A"),
-                    "Predicted ZFS": best[zfs_col],
-                    "E/D": best.get("ed_pred", best.get("E_D", "N/A")),
-                    "Error": best["error"]
-                }])
+        if df is None or zfs_col is None:
+            st.warning("Prediction column still not ready")
+            continue
 
-                st.dataframe(best_table)
+        # ================= FIND BEST COMPLEX =================
 
-                # stop if target reached
-                if best[zfs_col] <= target_zfs:
+        df["error"] = abs(df[zfs_col] - target_zfs)
 
-                    st.success("🎯 Target achieved")
+        df = df.sort_values("error")
 
-                    upload_pipeline_to_drive(target_zfs, mode)
+        best = df.iloc[0]
 
-                    break
+        st.success(f"Best ZFS so far: {best[zfs_col]:.2f}")
+
+        best_table = pd.DataFrame([{
+            "Ligands": best.get("ligands", "N/A"),
+            "Donor Pattern": best.get("donor_pattern", "N/A"),
+            "CN": best.get("CN", "N/A"),
+            "Predicted ZFS": best[zfs_col],
+            "E/D": best.get("ed_pred", best.get("E_D", "N/A")),
+            "Error": best["error"]
+        }])
+
+        st.dataframe(best_table)
+
+        # ================= STOP IF TARGET ACHIEVED =================
+
+        if best[zfs_col] <= target_zfs:
+
+            st.success("🎯 Target achieved")
+
+            upload_pipeline_to_drive(target_zfs, mode)
+
+            break
 
         # ================= SAVE STATE =================
 
@@ -174,7 +176,7 @@ if run:
 
             st.write("☁️ GA state saved")
 
-    # ================= FINAL =================
+    # ================= FINAL DISPLAY =================
 
     st.subheader("🏆 Elite ligand combinations")
 
@@ -183,5 +185,4 @@ if run:
         elite = pd.read_csv("elite_parents.csv")
 
         if not elite.empty:
-
             st.dataframe(elite)
