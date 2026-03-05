@@ -95,33 +95,47 @@ if run:
                 D_value = best_row.get("zfs_pred", "N/A")
                 ED_value = best_row.get("ed_pred", "N/A")
 
-                # detect donor count automatically
-                donor_count = None
+                # ================= CALCULATE DONOR PATTERN =================
 
-                if "CN" in elite.columns:
-                    donor_count = best_row["CN"]
+                donor_pattern = []
+                total_donor = 0
 
-                elif "donor_pattern" in elite.columns:
-                    donor_count = best_row["donor_pattern"]
+                if os.path.exists("ligand_donor_modes.csv"):
 
-                elif "donors" in elite.columns:
-                    donor_count = best_row["donors"]
+                    donor_map = pd.read_csv("ligand_donor_modes.csv")
 
-                else:
-                    donor_count = "N/A"
+                    ligands = str(ligand_combo).split(";")
+
+                    for lig in ligands:
+
+                        row = donor_map[donor_map["smiles"] == lig]
+
+                        if not row.empty:
+
+                            donors = int(row.iloc[0]["donors"])
+                            donor_pattern.append(donors)
+                            total_donor += donors
+
+                        else:
+                            donor_pattern.append("?")
+
+                # enforce total donor = 6
+                if total_donor != 6:
+                    continue
 
                 st.success(f"Best ZFS so far: {D_value:.2f}")
 
                 result_df = pd.DataFrame([{
                     "Ligand Combination": ligand_combo,
-                    "Donor Atoms": donor_count,
+                    "Donor Pattern": donor_pattern,
+                    "Total Donors": total_donor,
                     "Predicted D": D_value,
                     "E/D": ED_value
                 }])
 
                 st.dataframe(result_df)
 
-                # stop if target reached
+                # stop if target achieved
                 if D_value <= target_zfs:
                     st.success("🎯 Target achieved")
                     upload_pipeline_to_drive(target_zfs, mode)
