@@ -1,8 +1,7 @@
 # ==========================================================
 # 05_oracle_screen.py
 # Oracle screening (CRYSTAL + OPTIMIZED)
-# NO retraining
-# NO dimension guessing
+# WITH ELITE MEMORY (append + dedupe)
 # ==========================================================
 
 import os
@@ -20,17 +19,17 @@ from model import LigandGNN
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 🔴 THIS IS THE KEY LINE
-NODE_FEATURE_DIM = 11   # MUST match training-time features
+NODE_FEATURE_DIM = 11
 
 MODE = os.environ.get("MODE", "optimized").lower()
 TARGET_ZFS = float(os.environ.get("TARGET_ZFS", -180.0))
 
 ED_CUTOFF = 0.22
 ELITE_FRAC = 0.10
+MAX_MEMORY = 5000
 
 # ----------------------------------------------------------
-# Model & scaler selection
+# Model selection
 # ----------------------------------------------------------
 
 if MODE == "crystal":
@@ -47,7 +46,7 @@ else:
     ED_SCALER = "ed_scaler_opt.pkl"
 
 # ----------------------------------------------------------
-# Load generated complexes
+# Load complexes
 # ----------------------------------------------------------
 
 df = pd.read_csv("generated_complexes.csv")
@@ -55,13 +54,12 @@ print("[INFO] Generated complexes:", len(df))
 
 ligand_lists = df["ligands"].astype(str).str.split(";").tolist()
 
-# Dummy lists (oracle-only inference)
 donor_lists = [[0]*6] * len(ligand_lists)
 da_lists = [["X"]*6] * len(ligand_lists)
 dummy_y = [0.0] * len(ligand_lists)
 
 # ----------------------------------------------------------
-# Dataset & loader
+# Dataset
 # ----------------------------------------------------------
 
 dataset = LigandCombinationDataset(
@@ -74,7 +72,7 @@ dataset = LigandCombinationDataset(
 loader = DataLoader(dataset, batch_size=64, shuffle=False)
 
 # ----------------------------------------------------------
-# Load ZFS model
+# Load models
 # ----------------------------------------------------------
 
 zfs_model = LigandGNN(node_feature_dim=NODE_FEATURE_DIM).to(DEVICE)
@@ -83,10 +81,6 @@ zfs_model.eval()
 
 with open(ZFS_SCALER, "rb") as f:
     zfs_scaler = pickle.load(f)
-
-# ----------------------------------------------------------
-# Load E/D model
-# ----------------------------------------------------------
 
 ed_model = LigandGNN(node_feature_dim=NODE_FEATURE_DIM).to(DEVICE)
 ed_model.load_state_dict(torch.load(ED_MODEL, map_location=DEVICE))
@@ -103,11 +97,13 @@ zfs_preds = []
 ed_preds = []
 
 with torch.no_grad():
+
     for batch in loader:
+
         batch = batch.to(DEVICE)
 
-        z = zfs_model(batch).cpu().numpy().reshape(-1, 1)
-        e = ed_model(batch).cpu().numpy().reshape(-1, 1)
+        z = zfs_model(batch).cpu().numpy().reshape(-1,1)
+        e = ed_model(batch).cpu().numpy().reshape(-1,1)
 
         zfs_preds.extend(zfs_scaler.inverse_transform(z).flatten())
         ed_preds.extend(ed_scaler.inverse_transform(e).flatten())
@@ -116,17 +112,19 @@ df["zfs_pred"] = zfs_preds
 df["ed_pred"] = ed_preds
 
 # ----------------------------------------------------------
-# Hard constraint: E/D cutoff
+# E/D filter
 # ----------------------------------------------------------
 
 df = df[df["ed_pred"] <= ED_CUTOFF].copy()
-print(f"[INFO] Passed E/D filter (<= {ED_CUTOFF}): {len(df)}")
+
+print("[INFO] Passed E/D filter:", len(df))
 
 # ----------------------------------------------------------
-# Rank by target ZFS
+# Rank by target
 # ----------------------------------------------------------
 
 df["abs_err"] = (df["zfs_pred"] - TARGET_ZFS).abs()
+
 df.sort_values("abs_err", inplace=True)
 
 # ----------------------------------------------------------
@@ -134,9 +132,33 @@ df.sort_values("abs_err", inplace=True)
 # ----------------------------------------------------------
 
 n_elite = max(1, int(len(df) * ELITE_FRAC))
+
 elite = df.head(n_elite)
+
+# ----------------------------------------------------------
+# MEMORY APPEND + DEDUPE
+# ----------------------------------------------------------
+
+if os.path.exists("elite_parents.csv"):
+
+    old = pd.read_csv("elite_parents.csv")
+
+    combined = pd.concat([old, elite], ignore_index=True)
+
+    combined = combined.sort_values("zfs_pred")
+
+    combined = combined.drop_duplicates(
+        subset=["ligands"],
+        keep="first"
+    )
+
+    elite = combined.head(MAX_MEMORY)
+
+# ----------------------------------------------------------
+# SAVE MEMORY
+# ----------------------------------------------------------
 
 elite.to_csv("elite_parents.csv", index=False)
 
-print("[INFO] Elite saved:", len(elite))
+print("[INFO] Elite memory size:", len(elite))
 print("[INFO] Best predicted ZFS:", elite.iloc[0]["zfs_pred"])
