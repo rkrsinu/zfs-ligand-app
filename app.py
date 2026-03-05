@@ -90,15 +90,14 @@ if run:
             if not df.empty:
 
                 df["error"] = abs(df["zfs_pred"] - target_zfs)
-
                 df = df.sort_values("error")
 
                 best = df.iloc[0]
 
                 st.success(f"Best ZFS so far: {best['zfs_pred']:.2f}")
 
-                # Show best combination
-                st.markdown("**Best ligand combination this generation**")
+                # show best combination
+                st.write("Best ligand combination this generation")
 
                 st.dataframe(
                     pd.DataFrame([{
@@ -107,11 +106,10 @@ if run:
                         "CN": best["CN"],
                         "Predicted ZFS": best["zfs_pred"],
                         "E/D": best["ed_pred"],
-                        "Error": best["error"]
+                        "Error": best["error"],
                     }])
                 )
 
-                # Target achieved
                 if best["zfs_pred"] <= target_zfs:
                     st.success("🎯 Target achieved")
                     upload_pipeline_to_drive(target_zfs, mode)
@@ -128,6 +126,11 @@ if run:
             upload_pipeline_to_drive(target_zfs, mode)
             st.write("☁️ GA state saved")
 
-    # ========= FINAL MESSAGE =========
+    # ========= FINAL DISPLAY =========
 
-    st.success("GA run finished")
+    st.subheader("🏆 Elite ligand combinations")
+
+    if os.path.exists("elite_parents.csv"):
+        elite = pd.read_csv("elite_parents.csv")
+        if not elite.empty:
+            st.dataframe(elite)
