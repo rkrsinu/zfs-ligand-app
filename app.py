@@ -95,16 +95,33 @@ if run:
                 D_value = best_row.get("zfs_pred", "N/A")
                 ED_value = best_row.get("ed_pred", "N/A")
 
+                # detect donor count automatically
+                donor_count = None
+
+                if "CN" in elite.columns:
+                    donor_count = best_row["CN"]
+
+                elif "donor_pattern" in elite.columns:
+                    donor_count = best_row["donor_pattern"]
+
+                elif "donors" in elite.columns:
+                    donor_count = best_row["donors"]
+
+                else:
+                    donor_count = "N/A"
+
                 st.success(f"Best ZFS so far: {D_value:.2f}")
 
                 result_df = pd.DataFrame([{
                     "Ligand Combination": ligand_combo,
+                    "Donor Atoms": donor_count,
                     "Predicted D": D_value,
                     "E/D": ED_value
                 }])
 
                 st.dataframe(result_df)
 
+                # stop if target reached
                 if D_value <= target_zfs:
                     st.success("🎯 Target achieved")
                     upload_pipeline_to_drive(target_zfs, mode)
@@ -118,25 +135,6 @@ if run:
             "generated_complexes.csv",
             "elite_parents.csv",
         ]):
+
             upload_pipeline_to_drive(target_zfs, mode)
             st.write("☁️ GA state saved")
-
-    # ================= FINAL DISPLAY =================
-
-    st.subheader("🏆 Final Elite Ligands")
-
-    if os.path.exists("elite_parents.csv"):
-
-        elite = pd.read_csv("elite_parents.csv")
-
-        if not elite.empty:
-
-            final_df = elite[["ligands", "zfs_pred", "ed_pred"]]
-
-            final_df.columns = [
-                "Ligand Combination",
-                "Predicted D",
-                "E/D"
-            ]
-
-            st.dataframe(final_df)
