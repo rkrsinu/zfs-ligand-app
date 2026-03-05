@@ -6,16 +6,13 @@ from googleapiclient.http import MediaFileUpload
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-# ---------------------------------------------------------
 # OAuth credentials
-# ---------------------------------------------------------
-
 creds = Credentials(
     None,
-    refresh_token=st.secrets["GDRIVE_REFRESH_TOKEN"],
+    refresh_token=st.secrets["REFRESH_TOKEN"],
     token_uri="https://oauth2.googleapis.com/token",
-    client_id=st.secrets["GDRIVE_CLIENT_ID"],
-    client_secret=st.secrets["GDRIVE_CLIENT_SECRET"],
+    client_id=st.secrets["CLIENT_ID"],
+    client_secret=st.secrets["CLIENT_SECRET"],
     scopes=SCOPES,
 )
 
@@ -66,15 +63,12 @@ def get_or_create_folder(name, parent):
     return folder["id"]
 
 # ---------------------------------------------------------
-# Upload pipeline state
+# Upload GA state
 # ---------------------------------------------------------
 
 def upload_pipeline_to_drive(target, mode):
 
-    # create only the selected mode folder
     mode_folder = get_or_create_folder(mode, ROOT_FOLDER)
-
-    # create target folder inside mode
     target_folder = get_or_create_folder(str(int(target)), mode_folder)
 
     for file in PIPELINE_FILES:
@@ -91,25 +85,29 @@ def upload_pipeline_to_drive(target, mode):
             includeItemsFromAllDrives=True,
         ).execute()
 
-        media = MediaFileUpload(file, mimetype="text/csv", resumable=False)
+        media = MediaFileUpload(file, mimetype="text/csv")
 
-        # update existing
         if res["files"]:
 
-            file_id = res["files"][0]["id"]
-
             service.files().update(
-                fileId=file_id,
+                fileId=res["files"][0]["id"],
                 media_body=media,
                 supportsAllDrives=True,
             ).execute()
 
-        # create new
         else:
 
             service.files().create(
                 body={"name": file, "parents": [target_folder]},
                 media_body=media,
-                fields="id",
                 supportsAllDrives=True,
             ).execute()
+
+# ---------------------------------------------------------
+# Restore GA state (optional)
+# ---------------------------------------------------------
+
+def download_pipeline_from_drive(target, mode):
+
+    # simple stub to avoid ImportError
+    return False
