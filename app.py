@@ -3,7 +3,6 @@ import subprocess
 import sys
 import os
 import pandas as pd
-import time
 
 from gdrive_save import (
     download_pipeline_from_drive,
@@ -22,18 +21,8 @@ st.write("GA + GNN oracle pipeline for target ZFS")
 st.sidebar.header("🎯 Target settings")
 
 target_zfs = st.sidebar.number_input("Target ZFS (cm⁻¹)", value=-180.0)
-
-mode = st.sidebar.selectbox(
-    "Mode",
-    ["crystal", "optimized"]
-)
-
-max_gen = st.sidebar.number_input(
-    "Max GA generations",
-    1,
-    1000,
-    5
-)
+mode = st.sidebar.selectbox("Mode", ["crystal", "optimized"])
+max_gen = st.sidebar.number_input("Max GA generations", 1, 1000, 5)
 
 run = st.sidebar.button("🚀 Run")
 
@@ -49,16 +38,8 @@ if run:
     db_ret = subprocess.call([PYTHON, "00_target_decision.py", str(target_zfs)])
 
     if db_ret == 0:
-
         st.success("🎯 Direct database match found")
-
-        df = pd.read_csv("retrieved_solution.csv")
-
-        if "FileName" in df.columns:
-            df["FileName"] = df["FileName"].astype(str).str.replace("a", "", regex=False)
-
-        st.dataframe(df)
-
+        st.dataframe(pd.read_csv("retrieved_solution.csv"))
         st.stop()
 
     st.warning("No valid database match → starting GA")
@@ -83,7 +64,6 @@ if run:
         os.environ["GA_GEN"] = str(gen)
 
         progress.progress(gen / max_gen)
-
         st.subheader(f"Generation {gen}")
 
         if gen == 1 and first_run:
@@ -101,67 +81,34 @@ if run:
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # ================= WAIT UNTIL ORACLE FINISHES =================
+        # ================= SHOW BEST RESULT =================
 
-        zfs_col = None
-        df = None
+        if os.path.exists("elite_parents.csv"):
 
-        for _ in range(10):  # try for 10 seconds
+            elite = pd.read_csv("elite_parents.csv")
 
-            if os.path.exists("generated_complexes.csv"):
+            if not elite.empty:
 
-                try:
-                    df = pd.read_csv("generated_complexes.csv")
-                except:
-                    time.sleep(1)
-                    continue
+                best_row = elite.sort_values("zfs_pred").iloc[0]
 
-                if not df.empty:
+                ligand_combo = best_row.get("ligands", "N/A")
+                D_value = best_row.get("zfs_pred", "N/A")
+                ED_value = best_row.get("ed_pred", "N/A")
 
-                    for c in df.columns:
-                        if "zfs" in c.lower():
-                            zfs_col = c
-                            break
+                st.success(f"Best ZFS so far: {D_value:.2f}")
 
-                    if zfs_col is not None:
-                        break
+                result_df = pd.DataFrame([{
+                    "Ligand Combination": ligand_combo,
+                    "Predicted D": D_value,
+                    "E/D": ED_value
+                }])
 
-            time.sleep(1)
+                st.dataframe(result_df)
 
-        if df is None or zfs_col is None:
-            st.warning("Prediction column still not ready")
-            continue
-
-        # ================= FIND BEST COMPLEX =================
-
-        df["error"] = abs(df[zfs_col] - target_zfs)
-
-        df = df.sort_values("error")
-
-        best = df.iloc[0]
-
-        st.success(f"Best ZFS so far: {best[zfs_col]:.2f}")
-
-        best_table = pd.DataFrame([{
-            "Ligands": best.get("ligands", "N/A"),
-            "Donor Pattern": best.get("donor_pattern", "N/A"),
-            "CN": best.get("CN", "N/A"),
-            "Predicted ZFS": best[zfs_col],
-            "E/D": best.get("ed_pred", best.get("E_D", "N/A")),
-            "Error": best["error"]
-        }])
-
-        st.dataframe(best_table)
-
-        # ================= STOP IF TARGET ACHIEVED =================
-
-        if best[zfs_col] <= target_zfs:
-
-            st.success("🎯 Target achieved")
-
-            upload_pipeline_to_drive(target_zfs, mode)
-
-            break
+                if D_value <= target_zfs:
+                    st.success("🎯 Target achieved")
+                    upload_pipeline_to_drive(target_zfs, mode)
+                    break
 
         # ================= SAVE STATE =================
 
@@ -171,18 +118,25 @@ if run:
             "generated_complexes.csv",
             "elite_parents.csv",
         ]):
-
             upload_pipeline_to_drive(target_zfs, mode)
-
             st.write("☁️ GA state saved")
 
     # ================= FINAL DISPLAY =================
 
-    st.subheader("🏆 Elite ligand combinations")
+    st.subheader("🏆 Final Elite Ligands")
 
     if os.path.exists("elite_parents.csv"):
 
         elite = pd.read_csv("elite_parents.csv")
 
         if not elite.empty:
-            st.dataframe(elite)
+
+            final_df = elite[["ligands", "zfs_pred", "ed_pred"]]
+
+            final_df.columns = [
+                "Ligand Combination",
+                "Predicted D",
+                "E/D"
+            ]
+
+            st.dataframe(final_df)
