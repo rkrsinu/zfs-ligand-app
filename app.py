@@ -81,18 +81,38 @@ if run:
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # ===== SHOW BEST =====
+        # ===== SHOW BEST FROM THIS GENERATION =====
 
-        if os.path.exists("elite_parents.csv"):
+        if os.path.exists("generated_complexes.csv"):
 
-            elite = pd.read_csv("elite_parents.csv")
+            df = pd.read_csv("generated_complexes.csv")
 
-            if not elite.empty:
+            if not df.empty:
 
-                best = elite["zfs_pred"].min()
-                st.success(f"Best ZFS so far: {best:.2f}")
+                df["error"] = abs(df["zfs_pred"] - target_zfs)
 
-                if best <= target_zfs:
+                df = df.sort_values("error")
+
+                best = df.iloc[0]
+
+                st.success(f"Best ZFS so far: {best['zfs_pred']:.2f}")
+
+                # Show best combination
+                st.markdown("**Best ligand combination this generation**")
+
+                st.dataframe(
+                    pd.DataFrame([{
+                        "Ligands": best["ligands"],
+                        "Donor Pattern": best["donor_pattern"],
+                        "CN": best["CN"],
+                        "Predicted ZFS": best["zfs_pred"],
+                        "E/D": best["ed_pred"],
+                        "Error": best["error"]
+                    }])
+                )
+
+                # Target achieved
+                if best["zfs_pred"] <= target_zfs:
                     st.success("🎯 Target achieved")
                     upload_pipeline_to_drive(target_zfs, mode)
                     break
@@ -108,17 +128,6 @@ if run:
             upload_pipeline_to_drive(target_zfs, mode)
             st.write("☁️ GA state saved")
 
-    # ========= FINAL DISPLAY =========
+    # ========= FINAL MESSAGE =========
 
-    st.subheader("🏆 Elite ligand combinations")
-
-    if os.path.exists("elite_parents.csv"):
-        elite = pd.read_csv("elite_parents.csv")
-        if not elite.empty:
-            st.dataframe(elite)
-
-
-
-
-
-
+    st.success("GA run finished")
