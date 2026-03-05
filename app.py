@@ -3,6 +3,7 @@ import subprocess
 import sys
 import os
 import pandas as pd
+import time
 
 from gdrive_save import (
     download_pipeline_from_drive,
@@ -81,6 +82,9 @@ if run:
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
+        # give filesystem time to finish writing
+        time.sleep(1)
+
         # ===== SHOW BEST COMPLEX OF THIS GENERATION =====
 
         if os.path.exists("generated_complexes.csv"):
@@ -89,27 +93,36 @@ if run:
 
             if not df.empty:
 
-                df["error"] = abs(df["zfs_pred"] - target_zfs)
+                # detect ZFS column
+                if "zfs_pred" in df.columns:
+                    zfs_col = "zfs_pred"
+                elif "zfs" in df.columns:
+                    zfs_col = "zfs"
+                else:
+                    st.warning("Prediction column not available yet")
+                    continue
+
+                df["error"] = abs(df[zfs_col] - target_zfs)
                 df = df.sort_values("error")
 
                 best = df.iloc[0]
 
-                st.success(f"Best ZFS so far: {best['zfs_pred']:.2f}")
+                st.success(f"Best ZFS so far: {best[zfs_col]:.2f}")
 
                 st.markdown("### 🧬 Best ligand combination this generation")
 
                 st.dataframe(
                     pd.DataFrame([{
-                        "Ligands": best["ligands"],
-                        "Donor Pattern": best["donor_pattern"],
-                        "Coordination Number": best["CN"],
-                        "Predicted ZFS": best["zfs_pred"],
-                        "E/D": best["ed_pred"],
-                        "Error": best["error"],
+                        "Ligands": best.get("ligands", "N/A"),
+                        "Donor Pattern": best.get("donor_pattern", "N/A"),
+                        "CN": best.get("CN", "N/A"),
+                        "Predicted ZFS": best[zfs_col],
+                        "E/D": best.get("ed_pred", "N/A"),
+                        "Error": best["error"]
                     }])
                 )
 
-                if best["zfs_pred"] <= target_zfs:
+                if best[zfs_col] <= target_zfs:
                     st.success("🎯 Target achieved")
                     upload_pipeline_to_drive(target_zfs, mode)
                     break
