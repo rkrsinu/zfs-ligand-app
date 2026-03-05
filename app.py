@@ -81,7 +81,7 @@ if run:
         subprocess.call([PYTHON, "04_build_complexes.py"])
         subprocess.call([PYTHON, "05_oracle_screen.py"])
 
-        # ===== SHOW BEST FROM THIS GENERATION =====
+        # ===== SHOW BEST COMPLEX OF THIS GENERATION =====
 
         if os.path.exists("generated_complexes.csv"):
 
@@ -96,14 +96,13 @@ if run:
 
                 st.success(f"Best ZFS so far: {best['zfs_pred']:.2f}")
 
-                # show best combination
-                st.write("Best ligand combination this generation")
+                st.markdown("### 🧬 Best ligand combination this generation")
 
                 st.dataframe(
                     pd.DataFrame([{
                         "Ligands": best["ligands"],
                         "Donor Pattern": best["donor_pattern"],
-                        "CN": best["CN"],
+                        "Coordination Number": best["CN"],
                         "Predicted ZFS": best["zfs_pred"],
                         "E/D": best["ed_pred"],
                         "Error": best["error"],
