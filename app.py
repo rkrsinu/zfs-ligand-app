@@ -91,44 +91,18 @@ if run:
 
                 best_row = elite.sort_values("zfs_pred").iloc[0]
 
-                ligand_combo = best_row.get("ligands", "N/A")
-                D_value = best_row.get("zfs_pred", "N/A")
-                ED_value = best_row.get("ed_pred", "N/A")
-
-                # ================= CALCULATE DONOR PATTERN =================
-
-                donor_pattern = []
-                total_donor = 0
-
-                if os.path.exists("ligand_donor_modes.csv"):
-
-                    donor_map = pd.read_csv("ligand_donor_modes.csv")
-
-                    ligands = str(ligand_combo).split(";")
-
-                    for lig in ligands:
-
-                        row = donor_map[donor_map["smiles"] == lig]
-
-                        if not row.empty:
-
-                            donors = int(row.iloc[0]["donors"])
-                            donor_pattern.append(donors)
-                            total_donor += donors
-
-                        else:
-                            donor_pattern.append("?")
-
-                # enforce total donor = 6
-                if total_donor != 6:
-                    continue
+                ligand_combo = best_row["ligands"]
+                donor_list = best_row["donor_list"]
+                donor_sum = best_row["donor_sum"]
+                D_value = best_row["zfs_pred"]
+                ED_value = best_row["ed_pred"]
 
                 st.success(f"Best ZFS so far: {D_value:.2f}")
 
                 result_df = pd.DataFrame([{
                     "Ligand Combination": ligand_combo,
-                    "Donor Pattern": donor_pattern,
-                    "Total Donors": total_donor,
+                    "Donor Pattern": donor_list,
+                    "Total Donors": donor_sum,
                     "Predicted D": D_value,
                     "E/D": ED_value
                 }])
