@@ -11,7 +11,11 @@ showErrorDetails = true
 fastReruns = true
 
 [theme]
-base="light"
+base="dark"
+primaryColor="#00ff88"
+backgroundColor="#000000"
+secondaryBackgroundColor="#111111"
+textColor="#ffffff"
 
 [package]
 installer = "pip"
