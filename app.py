@@ -21,7 +21,7 @@ st.write("GA + GNN oracle pipeline for target ZFS")
 st.sidebar.header("🎯 Target settings")
 
 target_zfs = st.sidebar.number_input("Target ZFS (cm⁻¹)", value=-180.0)
-mode = st.sidebar.selectbox("Mode", ["crystal", "optimized"])
+mode = st.sidebar.selectbox("Mode", ["X-ray", "DFT"])
 max_gen = st.sidebar.number_input("Max GA generations", 1, 1000, 5)
 
 run = st.sidebar.button("🚀 Run")
