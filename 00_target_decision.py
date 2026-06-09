@@ -14,14 +14,18 @@ if len(sys.argv) < 2:
     sys.exit(2)
 
 TARGET_ZFS = float(sys.argv[1])
-MODE = os.environ.get("MODE", "crystal")
+MODE = os.environ.get("MODE", "X-ray")
 
-if MODE == "crystal":
+if MODE == "X-ray":
     CSV_FILE = os.path.join(BASE_DIR, "GA.csv")
     ZFS_COL = "zfs"
-else:
+
+elif MODE == "DFT":
     CSV_FILE = os.path.join(BASE_DIR, "opt_D.csv")
     ZFS_COL = "opt_zfs"
+
+else:
+    raise ValueError(f"Unknown MODE: {MODE}")
 
 TOL = 10.0
 
