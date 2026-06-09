@@ -42,17 +42,17 @@ if run:
         st.dataframe(pd.read_csv("retrieved_solution.csv"))
         st.stop()
 
-    st.warning("No valid database match → starting GA")
+    st.warning("⚠️ No suitable database hit found → 🚀 Entering AI-guided design mode")
 
     # ================= RESTORE =================
 
     restored = download_pipeline_from_drive(target_zfs, mode)
 
     if restored:
-        st.success("♻️ Resuming previous GA run")
+        st.success("♻️ Resuming inverse molecular design")
         first_run = False
     else:
-        st.info("🆕 Fresh GA run")
+        st.info("🆕 Initiating inverse molecular design")
         first_run = True
 
     progress = st.progress(0)
@@ -125,4 +125,4 @@ if run:
         ]):
 
             upload_pipeline_to_drive(target_zfs, mode)
-            st.write("☁️ GA state saved")
+            st.write("☁️ Design campaign checkpoint saved")
