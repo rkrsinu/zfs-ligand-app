@@ -14,6 +14,8 @@ import pandas as pd
 from collections import Counter
 import math
 
+from ga_progress import write_progress
+
 random.seed(42)
 
 TARGET = 6
@@ -123,9 +125,19 @@ rows = []
 seen = set()
 max_attempts = N_COMPLEXES * 100
 attempts = 0
+last_report = 0
+write_progress(stage="complex_generation", stage_progress=0.0, complexes_generated=0,
+                complexes_target=N_COMPLEXES,
+                message=f"Building candidate complexes: 0/{N_COMPLEXES:,}...")
 
 while len(rows) < N_COMPLEXES and attempts < max_attempts:
     attempts += 1
+    if attempts - last_report >= 250:
+        last_report = attempts
+        frac = len(rows) / max(1, N_COMPLEXES)
+        write_progress(stage_progress=min(0.99, frac), complexes_generated=len(rows),
+                       complexes_target=N_COMPLEXES,
+                       message=f"Building candidate complexes: {len(rows):,}/{N_COMPLEXES:,}...")
     pattern = random.choices(patterns, weights)[0]
     used = set()
     chosen = []
@@ -175,5 +187,8 @@ if len(rows) < N_COMPLEXES:
     print(f"[WARNING] Could generate only {len(rows)} unique complexes after {attempts} attempts.")
 
 pd.DataFrame(rows).to_csv("generated_complexes.csv", index=False)
+write_progress(stage="complex_generation", stage_progress=1.0, complexes_generated=len(rows),
+                complexes_target=N_COMPLEXES,
+                message=f"Candidate complex generation finished: {len(rows):,} complexes.")
 print("[INFO] Generated complexes:", len(rows))
 

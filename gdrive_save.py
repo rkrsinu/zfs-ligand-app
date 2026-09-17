@@ -1,27 +1,15 @@
 # ==========================================================
 # gdrive_save.py
-#
-# Google Drive persistence for resumable GA campaigns.
-# Only the files required to resume are synchronized by default.
-# Authentication is lazy so the GA worker can run without importing
-# Streamlit secrets at module import time.
+# Lightweight Google Drive persistence for resumable GA campaigns.
 # ==========================================================
 
 import os
 
-RESUME_FILES = [
-    "ga_checkpoint.csv",
-    "elite_parents.csv",
-]
-
-OPTIONAL_FILES = [
-    "mutation_lineage.csv",
-]
+RESUME_FILES = ["ga_checkpoint.csv", "elite_parents.csv"]
+OPTIONAL_FILES = ["mutation_lineage.csv"]
 
 
 def _get_secrets():
-    # Streamlit secrets are available in the deployed app. Environment
-    # variables make the same module usable from a local/CLI worker.
     token = os.environ.get("GDRIVE_REFRESH_TOKEN")
     client_id = os.environ.get("GDRIVE_CLIENT_ID")
     client_secret = os.environ.get("GDRIVE_CLIENT_SECRET")
@@ -39,9 +27,8 @@ def _get_secrets():
         return token, client_id, client_secret, folder_id
     except Exception as exc:
         raise RuntimeError(
-            "Google Drive credentials are not available. Set GDRIVE_REFRESH_TOKEN, "
-            "GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET and GDRIVE_FOLDER_ID, or configure "
-            "the corresponding Streamlit secrets."
+            "Google Drive credentials are not available. Configure the four "
+            "GDRIVE_* values in Streamlit secrets or environment variables."
         ) from exc
 
 
@@ -50,16 +37,15 @@ def _build_service():
     from googleapiclient.discovery import build
 
     token, client_id, client_secret, _ = _get_secrets()
-    scopes = ["https://www.googleapis.com/auth/drive"]
     creds = Credentials(
         None,
         refresh_token=token,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=scopes,
+        scopes=["https://www.googleapis.com/auth/drive"],
     )
-    return build("drive", "v3", credentials=creds)
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
 def _root_folder_id():
@@ -69,20 +55,16 @@ def _root_folder_id():
 def get_or_create_folder(service, name, parent):
     safe_name = str(name).replace("'", "\\'")
     query = (
-        f"name='{safe_name}' and "
-        "mimeType='application/vnd.google-apps.folder' and "
-        f"'{parent}' in parents and trashed=false"
+        f"name='{safe_name}' and mimeType='application/vnd.google-apps.folder' "
+        f"and '{parent}' in parents and trashed=false"
     )
     res = service.files().list(q=query, fields="files(id)", pageSize=10).execute()
-    if res.get("files"):
-        return res["files"][0]["id"]
+    files = res.get("files") or []
+    if files:
+        return files[0]["id"]
 
     folder = service.files().create(
-        body={
-            "name": str(name),
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [parent],
-        },
+        body={"name": str(name), "mimeType": "application/vnd.google-apps.folder", "parents": [parent]},
         fields="id",
     ).execute()
     return folder["id"]
@@ -99,14 +81,12 @@ def _find_file(service, name, folder):
     safe_name = str(name).replace("'", "\\'")
     query = f"name='{safe_name}' and '{folder}' in parents and trashed=false"
     res = service.files().list(q=query, fields="files(id,name)", pageSize=10).execute()
-    return res.get("files", [None])[0]
+    files = res.get("files") or []
+    return files[0] if files else None
 
 
 def download_pipeline_from_drive(target, mode, include_optional=False):
-    """Restore the minimum state needed to resume a campaign.
-
-    Returns True when at least one state file was restored.
-    """
+    """Restore only resume-critical state. Missing files are normal."""
     service = _build_service()
     folder = get_target_folder(service, target, mode)
     files = RESUME_FILES + (OPTIONAL_FILES if include_optional else [])
@@ -119,29 +99,31 @@ def download_pipeline_from_drive(target, mode, include_optional=False):
         if not found:
             continue
         request = service.files().get_media(fileId=found["id"])
-        with open(name, "wb") as fh:
+        local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+        with open(local_path, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request)
             done = False
             while not done:
                 _, done = downloader.next_chunk()
         restored = True
-
     return restored
 
 
 def upload_pipeline_to_drive(target, mode, include_optional=False):
-    """Upload only resumable state instead of all generation CSVs."""
+    """Upload only the small set of files required to resume the GA."""
     service = _build_service()
     folder = get_target_folder(service, target, mode)
     files = RESUME_FILES + (OPTIONAL_FILES if include_optional else [])
 
     from googleapiclient.http import MediaFileUpload
 
+    base = os.path.dirname(os.path.abspath(__file__))
     for name in files:
-        if not os.path.exists(name):
+        local_path = os.path.join(base, name)
+        if not os.path.exists(local_path):
             continue
         found = _find_file(service, name, folder)
-        media = MediaFileUpload(name, mimetype="text/csv", resumable=False)
+        media = MediaFileUpload(local_path, mimetype="text/csv", resumable=False)
         if found:
             service.files().update(fileId=found["id"], media_body=media).execute()
         else:

@@ -10,6 +10,8 @@ import os
 import pickle
 import pandas as pd
 import torch
+
+from ga_progress import write_progress
 from torch_geometric.loader import DataLoader
 
 from complex_dataset import LigandCombinationDataset
@@ -77,14 +79,22 @@ class OracleEngine:
 
         zfs_preds = []
         ed_preds = []
+        total_batches = max(1, len(loader))
 
         with torch.inference_mode():
-            for batch in loader:
+            for batch_no, batch in enumerate(loader, start=1):
                 batch = batch.to(self.device)
                 z = self.zfs_model(batch).detach().cpu().numpy().reshape(-1, 1)
                 e = self.ed_model(batch).detach().cpu().numpy().reshape(-1, 1)
                 zfs_preds.extend(self.zfs_scaler.inverse_transform(z).flatten())
                 ed_preds.extend(self.ed_scaler.inverse_transform(e).flatten())
+                if batch_no == 1 or batch_no % 5 == 0 or batch_no == total_batches:
+                    frac = batch_no / total_batches
+                    write_progress(
+                        stage="oracle", stage_progress=frac,
+                        oracle_processed=len(zfs_preds), oracle_total=len(ligand_lists),
+                        message=f"GNN screening: {len(zfs_preds):,}/{len(ligand_lists):,} candidates evaluated...",
+                    )
 
         out = df.copy()
         out["zfs_pred"] = zfs_preds
@@ -113,6 +123,9 @@ class OracleEngine:
 
         before = len(pred)
         pred = pred[pred["ed_pred"] <= ED_CUTOFF].copy()
+        write_progress(stage="oracle", stage_progress=1.0,
+                       oracle_total=before, ed_pass=len(pred),
+                       message=f"E/D filtering complete: {len(pred):,}/{before:,} candidates passed E/D ≤ {ED_CUTOFF}.")
         print(f"[ORACLE] Passed E/D <= {ED_CUTOFF}: {len(pred)} / {before}")
 
         if pred.empty:

@@ -48,7 +48,7 @@ The donor map can be rebuilt from `GA.csv` / `opt_D.csv` after a container resta
 
 Default backup frequency: every 5 generations, plus at target achievement and at the end of a Run.
 
-Change this in the sidebar.
+The main UI intentionally does **not** expose the number of complexes per generation or Google Drive backup frequency. These are worker settings controlled by the `N_COMPLEXES` and `DRIVE_SYNC_EVERY` environment variables.
 
 ## Run locally
 
@@ -68,6 +68,25 @@ or
 ```bash
 python 06_run_until_target.py -180 optimized 500
 ```
+
+## Live progress shown in the UI
+
+The main page continuously shows:
+
+- overall generation progress
+- current calculation stage
+- stage-level progress when available
+- complexes generated / target number
+- candidates screened
+- candidates passing E/D ≤ 0.22
+- number of ligand mutation records
+- best predicted ZFS and distance from the target
+- E/D of the best candidate
+- elapsed time and last update
+- recent worker activity
+- latest best ligand combination and compact CCDC provenance
+
+Internal generation numbers, complex-count controls, and Drive-backup controls are intentionally hidden from the main page.
 
 ## Streamlit secrets
 

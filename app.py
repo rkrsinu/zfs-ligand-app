@@ -2,22 +2,8 @@
 # app.py
 # ZFS-driven Ligand SMILES Generator
 #
-# IMPORTANT ARCHITECTURE CHANGE
-# -----------------------------
-# Streamlit is now the USER INTERFACE / STATUS VIEWER only.
-# The long-running GA is executed by ga_worker.py as a separate
-# process. Therefore a Streamlit rerun/session refresh does not
-# interrupt the current generation loop.
-#
-# The worker:
-#   * loads GNN models once
-#   * checkpoints locally every generation
-#   * syncs only resume-critical files to Google Drive periodically
-#   * resumes from the saved internal generation
-#
-# The visible generation counter resets to Generation 1 whenever
-# the user starts a new Run click, even when the worker internally
-# resumes from Generation 19, 50, etc.
+# Streamlit is the user interface/status monitor. The GA itself
+# runs in ga_worker.py as a separate process.
 # ==========================================================
 
 import ast
@@ -31,8 +17,6 @@ import time
 import pandas as pd
 import streamlit as st
 
-from gdrive_save import download_pipeline_from_drive
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON = sys.executable
 WORKER = os.path.join(BASE_DIR, "ga_worker.py")
@@ -42,38 +26,43 @@ LOCK_FILE = os.path.join(BASE_DIR, "ga_worker.lock")
 STOP_FILE = os.path.join(BASE_DIR, "ga_stop.flag")
 LOG_FILE = os.path.join(BASE_DIR, "ga_worker.log")
 
+# These are intentionally not exposed as main-page controls.
+DEFAULT_N_COMPLEXES = int(os.environ.get("N_COMPLEXES", "5000"))
+DEFAULT_DRIVE_SYNC_EVERY = int(os.environ.get("DRIVE_SYNC_EVERY", "5"))
+
 st.set_page_config(page_title="ZFS-driven Ligand SMILES Generator", layout="wide")
 
-# ================= STYLES =================
 st.markdown(
     """
 <style>
-.ga-table-wrap { width: 100%; overflow-x: auto; border-radius: 10px; }
-.ga-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed;
-            font-size: 15px; background: transparent; }
-.ga-table th { padding: 13px 12px; text-align: left; font-weight: 700;
-               border-bottom: 1px solid rgba(128,128,128,.35); }
-.ga-table td { padding: 14px 12px; vertical-align: middle;
-               border-bottom: 1px solid rgba(128,128,128,.20); }
-.ga-table th:nth-child(1), .ga-table td:nth-child(1) { width: 50%; }
-.ga-table th:nth-child(2), .ga-table td:nth-child(2) { width: 18%; }
-.ga-table th:nth-child(3), .ga-table td:nth-child(3) { width: 11%; text-align:center; }
-.ga-table th:nth-child(4), .ga-table td:nth-child(4) { width: 9%; text-align:center; }
-.ga-table th:nth-child(5), .ga-table td:nth-child(5) { width: 8%; text-align:right; }
-.ga-table th:nth-child(6), .ga-table td:nth-child(6) { width: 7%; text-align:right; }
-.smiles-cell { white-space: normal; overflow-wrap: anywhere; word-break: break-word;
-               line-height: 1.45; }
-.source-cell { line-height: 1.45; white-space: normal; }
-.source-item { margin: 0 0 5px 0; }
-.source-label { font-weight: 650; }
-.ccdc { font-weight: 650; white-space: nowrap; }
-.metric { font-variant-numeric: tabular-nums; }
-.final-box { padding: 16px 18px; border-radius: 10px;
-             border: 1px solid rgba(128,128,128,.28); margin-top: 8px; }
-.final-row { padding: 7px 0; border-bottom: 1px solid rgba(128,128,128,.18); line-height: 1.45; }
-.final-row:last-child { border-bottom: 0; }
-.status-box { padding: 12px 15px; border-radius: 10px; border: 1px solid rgba(128,128,128,.28); }
-.small-muted { opacity: .72; font-size: 0.9rem; }
+.ga-table-wrap { width:100%; overflow-x:auto; border-radius:10px; }
+.ga-table { width:100%; min-width:980px; border-collapse:collapse; table-layout:fixed;
+            font-size:15px; background:transparent; }
+.ga-table th { padding:13px 12px; text-align:left; font-weight:700;
+               border-bottom:1px solid rgba(128,128,128,.35); }
+.ga-table td { padding:14px 12px; vertical-align:middle;
+               border-bottom:1px solid rgba(128,128,128,.20); }
+.ga-table th:nth-child(1), .ga-table td:nth-child(1) { width:50%; }
+.ga-table th:nth-child(2), .ga-table td:nth-child(2) { width:18%; }
+.ga-table th:nth-child(3), .ga-table td:nth-child(3) { width:11%; text-align:center; }
+.ga-table th:nth-child(4), .ga-table td:nth-child(4) { width:9%; text-align:center; }
+.ga-table th:nth-child(5), .ga-table td:nth-child(5) { width:8%; text-align:right; }
+.ga-table th:nth-child(6), .ga-table td:nth-child(6) { width:7%; text-align:right; }
+.smiles-cell { white-space:normal; overflow-wrap:anywhere; word-break:break-word; line-height:1.45; }
+.source-cell { line-height:1.45; white-space:normal; }
+.source-item { margin:0 0 5px 0; }
+.source-label { font-weight:650; }
+.ccdc { font-weight:650; white-space:nowrap; }
+.metric { font-variant-numeric:tabular-nums; }
+.final-box { padding:16px 18px; border-radius:10px;
+             border:1px solid rgba(128,128,128,.28); margin-top:8px; }
+.final-row { padding:7px 0; border-bottom:1px solid rgba(128,128,128,.18); line-height:1.45; }
+.final-row:last-child { border-bottom:0; }
+.hero-status { padding:18px 20px; border-radius:14px;
+               border:1px solid rgba(128,128,128,.28); margin:8px 0 16px 0; }
+.stage-title { font-size:1.15rem; font-weight:700; margin-bottom:3px; }
+.stage-sub { opacity:.72; font-size:.92rem; }
+.activity { padding:10px 14px; border-radius:9px; border:1px solid rgba(128,128,128,.20); margin-top:8px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -82,7 +71,7 @@ st.markdown(
 st.title("🔬 ZFS-driven Ligand SMILES Generator")
 st.write("GA + GNN oracle pipeline for target ZFS")
 
-# ================= HELPERS =================
+
 def parse_list(value):
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
@@ -99,25 +88,15 @@ def parse_list(value):
 
 
 def source_rows(row):
-    """Compact provenance shown in result tables.
-
-    Display is deliberately limited to:
-      L1 · Reported ligand · CCDC XXXXXXX
-      L2 · Mutated from reported ligand · CCDC XXXXXXX
-    """
     ligands = [x.strip() for x in str(row.get("ligands", "")).split(";") if x.strip()]
     ccdcs = parse_list(row.get("parent_ccdcs", ""))
     muts = parse_list(row.get("mutations", ""))
     parents = parse_list(row.get("parent_ligands", ""))
-
     rows = []
     for i, lig in enumerate(ligands):
         ccdc = ccdcs[i] if i < len(ccdcs) else ""
         mutation = muts[i] if i < len(muts) else ""
         parent = parents[i] if i < len(parents) else ""
-
-        # A ligand is considered directly reported when it is the same
-        # SMILES as its reported parent and no mutation operator was applied.
         is_reported = (
             mutation in {"", "database_ligand", "database_seed", "elite_parent"}
             and (not parent or parent == lig)
@@ -146,35 +125,35 @@ def render_result_table(row):
         ed = float(row.get("ed_pred", 0.0))
     except Exception:
         ed = 0.0
-
     ligands = html.escape(str(row.get("ligands", "")))
     donor_pattern = html.escape(str(row.get("donor_list", "")))
     donor_sum = html.escape(str(row.get("donor_sum", "")))
     source = format_source_cell(row)
-
-    table = f"""
-    <div class="ga-table-wrap">
-      <table class="ga-table">
-        <thead><tr>
-          <th>Ligand Combination</th>
-          <th>Ligand source / CCDC</th>
-          <th>Donor Pattern</th>
-          <th>Total Donors</th>
-          <th>Predicted D</th>
-          <th>E/D</th>
-        </tr></thead>
-        <tbody><tr>
-          <td class="smiles-cell">{ligands}</td>
-          <td>{source}</td>
-          <td>{donor_pattern}</td>
-          <td class="metric">{donor_sum}</td>
-          <td class="metric">{zfs:.4f}</td>
-          <td class="metric">{ed:.5f}</td>
-        </tr></tbody>
-      </table>
-    </div>
-    """
-    st.markdown(table, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="ga-table-wrap">
+          <table class="ga-table">
+            <thead><tr>
+              <th>Ligand Combination</th>
+              <th>Ligand source / CCDC</th>
+              <th>Donor Pattern</th>
+              <th>Total Donors</th>
+              <th>Predicted D</th>
+              <th>E/D</th>
+            </tr></thead>
+            <tbody><tr>
+              <td class="smiles-cell">{ligands}</td>
+              <td>{source}</td>
+              <td>{donor_pattern}</td>
+              <td class="metric">{donor_sum}</td>
+              <td class="metric">{zfs:.4f}</td>
+              <td class="metric">{ed:.5f}</td>
+            </tr></tbody>
+          </table>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def show_synthesis_references(row):
@@ -213,26 +192,29 @@ def pid_alive(pid):
 
 
 def worker_info():
-    """Return (running, target, mode, pid)."""
     if not os.path.exists(LOCK_FILE):
         return False, None, None, None
-
-    pid = None
     try:
         raw = open(LOCK_FILE, "r", encoding="utf-8").read().strip()
-        if raw.startswith("STARTING:"):
-            # A launcher is active; treat it as running briefly.
-            launcher_pid = raw.split(":", 1)[1]
-            return pid_alive(launcher_pid), None, None, None
-        pid = int(raw)
     except Exception:
-        pid = None
+        raw = ""
 
-    if pid is not None and pid_alive(pid):
-        status = read_json(STATUS_FILE)
-        return True, status.get("target_zfs"), status.get("mode"), pid
+    status = read_json(STATUS_FILE)
+    target = status.get("target_zfs")
+    mode = status.get("mode")
 
-    # Stale lock after a crash/reboot.
+    if raw.startswith("STARTING:"):
+        launcher_pid = raw.split(":", 1)[1]
+        if pid_alive(launcher_pid):
+            return True, target, mode, None
+    else:
+        try:
+            pid = int(raw)
+        except Exception:
+            pid = None
+        if pid is not None and pid_alive(pid):
+            return True, target, mode, pid
+
     try:
         os.remove(LOCK_FILE)
     except Exception:
@@ -240,84 +222,83 @@ def worker_info():
     return False, None, None, None
 
 
-def local_checkpoint_matches(target, mode):
-    if not os.path.exists(CHECKPOINT):
-        return False
+def status_matches_target(status, target, mode):
     try:
-        df = pd.read_csv(CHECKPOINT)
-        if df.empty:
-            return False
-        r = df.iloc[0]
         return (
-            abs(float(r.get("target_zfs", target)) - float(target)) <= 1e-12
-            and str(r.get("mode", mode)).strip().lower() == str(mode).lower()
+            abs(float(status.get("target_zfs")) - float(target)) <= 1e-12
+            and str(status.get("mode", "")).lower() == str(mode).lower()
         )
     except Exception:
         return False
 
 
-def clear_stale_local_files_for_new_campaign():
-    """Prevent an unrelated old campaign from being mistaken for a new one."""
-    for name in [
-        "ga_checkpoint.csv",
-        "ga_status.json",
-        "elite_parents.csv",
-        "mutated_ligands.csv",
-        "mutation_lineage.csv",
-        "generated_complexes.csv",
-        "oracle_screened_complexes.csv",
-        "ligand_donor_modes.csv",
-        "seed_complexes.csv",
-        "seed_ligands.csv",
-        "retrieved_solution.csv",
-    ]:
-        path = os.path.join(BASE_DIR, name)
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-
-
-def prepare_campaign(target, mode):
-    """Restore a matching campaign from Drive if no matching local state exists."""
-    if local_checkpoint_matches(target, mode):
-        return "local"
-
-    # Do not overwrite an unrelated active campaign.
-    running, active_target, active_mode, _ = worker_info()
-    if running:
-        return "active"
-
-    clear_stale_local_files_for_new_campaign()
-
+def load_latest_best():
+    path = os.path.join(BASE_DIR, "elite_parents.csv")
+    if not os.path.exists(path):
+        return None
     try:
-        restored = download_pipeline_from_drive(target, mode, include_optional=False)
-        return "drive" if restored else "new"
-    except Exception as exc:
-        # A missing Drive configuration should not prevent local execution.
-        st.warning(f"Google Drive restore was not available: {exc}")
-        return "new"
+        df = pd.read_csv(path)
+        if df.empty:
+            return None
+        if "abs_err" in df.columns:
+            df = df.sort_values("abs_err")
+        return df.iloc[0]
+    except Exception:
+        return None
+
+
+def write_initial_status(target, mode, requested_generations):
+    payload = {
+        "pid": None,
+        "target_zfs": float(target),
+        "mode": mode,
+        "requested_generations": int(requested_generations),
+        "display_generation": 0,
+        "absolute_generation": 0,
+        "progress": 0.0,
+        "stage_progress": 0.0,
+        "complexes_target": DEFAULT_N_COMPLEXES,
+        "complexes_generated": 0,
+        "oracle_total": 0,
+        "ed_pass": 0,
+        "mutations_generated": 0,
+        "state": "running",
+        "stage": "starting",
+        "target_achieved": False,
+        "message": "Starting the GA worker...",
+        "elapsed_seconds": 0.0,
+        "activity": [f"{time.strftime('%H:%M:%S')} · Starting the GA worker..."] ,
+        "updated_at": time.strftime('%Y-%m-%dT%H:%M:%S'),
+    }
+    tmp = STATUS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, STATUS_FILE)
 
 
 def start_worker(target, mode, max_generations):
     running, active_target, active_mode, _ = worker_info()
     if running:
-        return False, f"A GA worker is already running (target={active_target}, mode={active_mode})."
+        if active_target is not None and active_mode is not None:
+            return False, f"A GA campaign is already running for target {active_target:g} ({active_mode})."
+        return False, "A GA worker is already starting. Please wait a few seconds."
 
-    # Atomic launch lock prevents double-clicks from creating two workers.
     try:
         with open(LOCK_FILE, "x", encoding="utf-8") as fh:
             fh.write(f"STARTING:{os.getpid()}")
     except FileExistsError:
         return False, "A GA worker is already starting. Please wait a few seconds."
 
+    # Write the target immediately so the monitor never displays an old
+    # campaign while the worker process is being launched.
+    write_initial_status(target, mode, max_generations)
+
     env = os.environ.copy()
     env["MODE"] = mode
     env["TARGET_ZFS"] = str(float(target))
-    env["N_COMPLEXES"] = str(int(os.environ.get("N_COMPLEXES", "5000")))
+    env["N_COMPLEXES"] = str(DEFAULT_N_COMPLEXES)
+    env["DRIVE_SYNC_EVERY"] = str(DEFAULT_DRIVE_SYNC_EVERY)
 
-    # Remove a stop request from an earlier run.
     try:
         if os.path.exists(STOP_FILE):
             os.remove(STOP_FILE)
@@ -326,37 +307,32 @@ def start_worker(target, mode, max_generations):
 
     log_fh = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
     log_fh.write("\n\n================ NEW GA RUN ================\n")
-    log_fh.write(f"Started: {time.ctime()} | target={target} | mode={mode} | max_gen={max_generations}\n")
+    log_fh.write(
+        f"Started: {time.ctime()} | target={target} | mode={mode} | "
+        f"requested_gen={max_generations} | complexes/gen={DEFAULT_N_COMPLEXES}\n"
+    )
     log_fh.flush()
 
     try:
-        kwargs = {
-            "cwd": BASE_DIR,
-            "env": env,
-            "stdout": log_fh,
-            "stderr": subprocess.STDOUT,
-            "stdin": subprocess.DEVNULL,
-            "close_fds": True,
-        }
-        # On Windows this detaches the child from the console; on Linux/Cloud
-        # the normal child process is sufficient and survives Streamlit reruns.
+        kwargs = dict(
+            cwd=BASE_DIR,
+            env=env,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+        )
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
 
         subprocess.Popen(
             [
-                PYTHON,
-                WORKER,
-                "--target",
-                str(float(target)),
-                "--mode",
-                mode,
-                "--max-generations",
-                str(int(max_generations)),
-                "--drive-sync-every",
-                os.environ.get("DRIVE_SYNC_EVERY", "5"),
-                "--n-complexes",
-                os.environ.get("N_COMPLEXES", "5000"),
+                PYTHON, WORKER,
+                "--target", str(float(target)),
+                "--mode", mode,
+                "--max-generations", str(int(max_generations)),
+                "--drive-sync-every", str(DEFAULT_DRIVE_SYNC_EVERY),
+                "--n-complexes", str(DEFAULT_N_COMPLEXES),
             ],
             **kwargs,
         )
@@ -378,43 +354,12 @@ def request_stop():
         fh.write(str(time.time()))
 
 
-def load_latest_best():
-    path = os.path.join(BASE_DIR, "elite_parents.csv")
-    if not os.path.exists(path):
-        return None
-    try:
-        df = pd.read_csv(path)
-        if df.empty:
-            return None
-        if "abs_err" in df.columns:
-            df = df.sort_values("abs_err")
-        return df.iloc[0]
-    except Exception:
-        return None
-
-
-def status_matches_target(status, target, mode):
-    try:
-        return (
-            abs(float(status.get("target_zfs")) - float(target)) <= 1e-12
-            and str(status.get("mode", "")).lower() == str(mode).lower()
-        )
-    except Exception:
-        return False
-
-
 # ================= SIDEBAR =================
 st.sidebar.header("🎯 Target settings")
 target_zfs = st.sidebar.number_input("Target ZFS (cm⁻¹)", value=-180.0, step=1.0)
 mode_label = st.sidebar.selectbox("Mode", ["X-ray", "DFT"])
 mode = "crystal" if mode_label == "X-ray" else "optimized"
-max_gen = st.sidebar.number_input("Max GA generations", min_value=1, max_value=1000, value=5, step=1)
-n_complexes = st.sidebar.number_input("Complexes per generation", min_value=100, max_value=20000, value=5000, step=100)
-drive_every = st.sidebar.number_input("Google Drive backup every N generations", min_value=1, max_value=50, value=5, step=1)
-
-# These values are passed to the worker through the environment.
-os.environ["N_COMPLEXES"] = str(int(n_complexes))
-os.environ["DRIVE_SYNC_EVERY"] = str(int(drive_every))
+max_gen = st.sidebar.number_input("Max GA generations", min_value=1, max_value=1000, value=500, step=1)
 
 run = st.sidebar.button("🚀 Run", type="primary", use_container_width=True)
 stop = st.sidebar.button("⏹ Stop after current generation", use_container_width=True)
@@ -423,7 +368,7 @@ if stop:
     running, _, _, _ = worker_info()
     if running:
         request_stop()
-        st.sidebar.success("Stop requested. The worker will stop at the next safe generation boundary.")
+        st.sidebar.success("Stop requested. The worker will stop after the current generation is safely completed.")
     else:
         st.sidebar.info("No GA worker is currently running.")
 
@@ -432,27 +377,21 @@ if run:
     if running:
         if (
             active_target is not None
+            and active_mode is not None
             and abs(float(active_target) - float(target_zfs)) <= 1e-12
             and str(active_mode).lower() == mode
         ):
-            st.info("♻️ This target is already running. The page will continue to show its live status.")
+            st.info("♻️ This campaign is already running. Live progress is shown below.")
         else:
             st.error(
                 f"Another GA campaign is currently running (target={active_target}, mode={active_mode}). "
                 "Stop it before starting a different campaign."
             )
     else:
-        with st.spinner("Restoring saved campaign state..."):
-            source = prepare_campaign(float(target_zfs), mode)
         try:
             started, message = start_worker(float(target_zfs), mode, int(max_gen))
             if started:
-                if source == "drive":
-                    st.success("♻️ Saved campaign restored from Google Drive. Starting the new Run from that state.")
-                elif source == "local":
-                    st.success("♻️ Saved local campaign restored. Starting the new Run from that state.")
-                else:
-                    st.success("🆕 New GA campaign started.")
+                st.success("🚀 GA campaign started. Live progress will appear below.")
             else:
                 st.warning(message)
         except Exception as exc:
@@ -466,34 +405,97 @@ def live_monitor():
     running, active_target, active_mode, pid = worker_info()
 
     if not status_matches_target(status, float(target_zfs), mode):
-        if running:
+        if running and active_target is not None:
             st.warning(
                 f"A different campaign is running (target={active_target}, mode={active_mode}). "
-                "Select the same target/mode to monitor it."
+                "Select the same target and mode to view its progress."
             )
         else:
-            st.info("Set the target and press **Run** to start or resume the GA campaign.")
+            st.info("Set the target and click **Run** to start or resume the GA campaign.")
         return
 
     state = str(status.get("state", "idle"))
     stage = str(status.get("stage", "idle"))
     display_gen = int(status.get("display_generation", 0) or 0)
-    absolute_gen = int(status.get("absolute_generation", 0) or 0)
-    next_gen = status.get("next_generation")
     requested = int(status.get("requested_generations", max_gen) or max_gen)
     best_zfs = status.get("best_zfs")
     best_ed = status.get("best_ed")
     message = str(status.get("message", ""))
     progress = float(status.get("progress", 0.0) or 0.0)
     achieved = bool(status.get("target_achieved", False))
+    complexes_generated = int(status.get("complexes_generated", 0) or 0)
+    complexes_total = int(status.get("complexes_target", DEFAULT_N_COMPLEXES) or DEFAULT_N_COMPLEXES)
+    ed_pass = int(status.get("ed_pass", 0) or 0)
+    oracle_total = int(status.get("oracle_total", 0) or 0)
+    mutations = int(status.get("mutations_generated", 0) or 0)
+    elapsed = float(status.get("elapsed_seconds", 0.0) or 0.0)
+    drive_msg = status.get("drive_message")
+    last_update = status.get("updated_at", "—")
 
-    st.markdown('<div class="status-box">', unsafe_allow_html=True)
+    if best_zfs is not None:
+        try:
+            target_error = abs(float(best_zfs) - float(target_zfs))
+        except Exception:
+            target_error = None
+    else:
+        target_error = None
+
+    # Main progress area: no implementation details such as internal generation.
+    st.markdown('<div class="hero-status">', unsafe_allow_html=True)
+    if achieved:
+        title = "🎯 Target achieved"
+    elif state == "error":
+        title = "❌ Calculation stopped because of an error"
+    elif state == "stopped":
+        title = "⏹ Calculation stopped safely"
+    elif state == "idle" and stage == "run_complete":
+        title = "✅ Run completed"
+    elif running:
+        title = "⚙️ GA calculation in progress"
+    else:
+        title = "GA campaign status"
+
+    st.markdown(f'<div class="stage-title">{title}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stage-sub">{html.escape(message or stage.replace("_", " ").title())}</div>', unsafe_allow_html=True)
+
+    if requested > 0:
+        st.progress(max(0.0, min(1.0, progress)), text=f"Overall progress · Generation {display_gen}/{requested}")
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Run generation", f"{display_gen}/{requested}" if display_gen else "—")
-    c2.metric("Internal generation", str(absolute_gen) if absolute_gen else "—")
-    c3.metric("Best predicted D", f"{float(best_zfs):.2f}" if best_zfs is not None else "—")
+    c1.metric("Generation", f"{display_gen}/{requested}" if display_gen else "Preparing…")
+    c2.metric("Best predicted D", f"{float(best_zfs):.2f}" if best_zfs is not None else "—")
+    c3.metric("Target distance", f"{target_error:.2f} cm⁻¹" if target_error is not None else "—")
     c4.metric("E/D", f"{float(best_ed):.4f}" if best_ed is not None else "—")
-    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("#### 📊 Calculation progress")
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Complexes generated", f"{complexes_generated:,}/{complexes_total:,}")
+    p2.metric("Candidates screened", f"{oracle_total:,}")
+    p3.metric("Passed E/D ≤ 0.22", f"{ed_pass:,}")
+
+    p4, p5, p6 = st.columns(3)
+    p4.metric("Ligand mutations", f"{mutations:,}")
+    p5.metric("Elapsed time", format_elapsed(elapsed))
+    p6.metric("Last update", str(last_update).replace("T", " ")[:19])
+
+    # Stage-specific progress gives the user something visible even when a
+    # single generation takes several minutes.
+    stage_progress = status.get("stage_progress")
+    if stage_progress is not None:
+        try:
+            stage_progress = max(0.0, min(1.0, float(stage_progress)))
+            st.progress(stage_progress, text=f"Current step · {stage.replace('_', ' ').title()} · {stage_progress*100:.0f}%")
+        except Exception:
+            pass
+
+    if drive_msg:
+        if str(drive_msg).lower().startswith("google drive sync completed"):
+            st.caption(f"☁️ {drive_msg}")
+        else:
+            st.caption(f"☁️ {drive_msg}")
+
+    if stage in {"starting", "database_check", "restoring", "initializing", "loading_models"}:
+        st.info("⏳ Preparing the calculation. The worker is active; the next progress values will appear automatically.")
 
     if stage == "database_hit":
         st.success("🎯 A reported database structure already satisfies the target criterion.")
@@ -506,27 +508,16 @@ def live_monitor():
                 st.warning(f"Could not display the retrieved database solution: {exc}")
         return
 
-    if state == "running":
-        st.progress(max(0.0, min(1.0, progress)))
-        st.info(f"⚙️ {message}")
-    elif achieved:
-        st.success(f"🎯 {message}")
-    elif state == "idle" and stage == "run_complete":
-        st.success(f"✅ {message}")
-    elif state == "stopped":
-        st.warning(f"⏹ {message}")
-    elif state == "error":
-        st.error(f"❌ {message}")
-        with st.expander("Worker error details"):
+    if state == "error":
+        with st.expander("Worker error details", expanded=True):
             st.code(str(status.get("error", "No traceback available.")))
-    else:
-        st.info(message or f"Worker stage: {stage}")
 
-    # Show only the latest generation result. This prevents the browser DOM
-    # from growing to hundreds of tables during a long run.
     best = load_latest_best()
     if best is not None:
-        st.markdown(f"### Generation {display_gen if display_gen else absolute_gen} — latest best candidate")
+        label = "Latest best candidate"
+        if display_gen:
+            label += f" · Generation {display_gen}"
+        st.markdown(f"### 🧬 {label}")
         render_result_table(best)
 
     if achieved and best is not None:
@@ -540,21 +531,30 @@ def live_monitor():
         }
         st.dataframe(pd.DataFrame([final_cols]), use_container_width=True, hide_index=True)
 
-    drive_message = status.get("drive_message")
-    if drive_message:
-        st.caption(drive_message)
+    # Short activity feed from worker-written messages.
+    history = status.get("activity", [])
+    if history:
+        st.markdown("#### 📝 Latest activity")
+        for item in history[-6:]:
+            st.markdown(
+                f'<div class="activity">{html.escape(str(item))}</div>',
+                unsafe_allow_html=True,
+            )
 
-    if running:
-        st.caption(f"Worker PID: {pid} · Last update: {status.get('updated_at', '—')}")
-    elif next_gen:
-        st.caption(f"Next internal generation on the next Run: {next_gen}")
+
+
+def format_elapsed(seconds):
+    try:
+        seconds = max(0, int(float(seconds)))
+    except Exception:
+        return "—"
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m"
+    if m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
 
 
 live_monitor()
-
-# ================= NOTES =================
-st.markdown("---")
-st.caption(
-    "The visible Run generation always starts at 1. If a saved campaign resumes internally from a later generation, "
-    "the worker continues from that checkpoint while the visible counter resets for the new Run click."
-)
