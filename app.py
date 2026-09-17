@@ -39,7 +39,8 @@ if run:
 
     if db_ret == 0:
         st.success("🎯 Direct database match found")
-        st.dataframe(pd.read_csv("retrieved_solution.csv"))
+        result = pd.read_csv("retrieved_solution.csv")
+        st.dataframe(result)
         st.stop()
 
     st.warning("⚠️ No suitable database hit found → 🚀 Entering AI-guided design mode")
@@ -96,11 +97,13 @@ if run:
                 donor_sum = best_row["donor_sum"]
                 D_value = best_row["zfs_pred"]
                 ED_value = best_row["ed_pred"]
+                CCDC_value = best_row.get("parent_CCDC_for_experiment", "")
 
                 st.success(f"Best ZFS so far: {D_value:.2f}")
 
                 result_df = pd.DataFrame([{
                     "Ligand Combination": ligand_combo,
+                    "CCDC": CCDC_value,
                     "Donor Pattern": donor_list,
                     "Total Donors": donor_sum,
                     "Predicted D": D_value,

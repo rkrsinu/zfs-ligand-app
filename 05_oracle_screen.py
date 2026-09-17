@@ -3,9 +3,13 @@
 # Oracle screening (CRYSTAL + OPTIMIZED)
 # NO retraining
 # NO dimension guessing
+#
+# CCDC ADDITION ONLY: provenance columns are retained and a
+# compact parent_CCDC_for_experiment column is added.
 # ==========================================================
 
 import os
+import ast
 import torch
 import pickle
 import pandas as pd
@@ -20,8 +24,7 @@ from model import LigandGNN
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 🔴 THIS IS THE KEY LINE
-NODE_FEATURE_DIM = 11   # MUST match training-time features
+NODE_FEATURE_DIM = 11
 
 MODE = os.environ.get("MODE", "optimized").lower()
 TARGET_ZFS = float(os.environ.get("TARGET_ZFS", -180.0))
@@ -55,7 +58,6 @@ print("[INFO] Generated complexes:", len(df))
 
 ligand_lists = df["ligands"].astype(str).str.split(";").tolist()
 
-# Dummy lists (oracle-only inference)
 donor_lists = [[0]*6] * len(ligand_lists)
 da_lists = [["X"]*6] * len(ligand_lists)
 dummy_y = [0.0] * len(ligand_lists)
@@ -134,9 +136,25 @@ df.sort_values("abs_err", inplace=True)
 # ----------------------------------------------------------
 
 n_elite = max(1, int(len(df) * ELITE_FRAC))
-elite = df.head(n_elite)
+elite = df.head(n_elite).copy()
+
+# CCDC is metadata only and does not affect selection/ranking.
+def ccdc_display(value):
+    try:
+        vals = ast.literal_eval(str(value))
+        vals = [str(x) for x in vals if str(x).strip() and str(x).lower() != "nan"]
+        return ";".join(vals)
+    except Exception:
+        return str(value)
+
+if "parent_ccdcs" in elite.columns:
+    elite["parent_CCDC_for_experiment"] = elite["parent_ccdcs"].apply(ccdc_display)
+else:
+    elite["parent_CCDC_for_experiment"] = ""
 
 elite.to_csv("elite_parents.csv", index=False)
 
 print("[INFO] Elite saved:", len(elite))
 print("[INFO] Best predicted ZFS:", elite.iloc[0]["zfs_pred"])
+if "parent_CCDC_for_experiment" in elite.columns:
+    print("[INFO] Parent CCDC(s):", elite.iloc[0]["parent_CCDC_for_experiment"])

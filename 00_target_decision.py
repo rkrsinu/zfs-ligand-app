@@ -2,6 +2,9 @@
 # 00_target_decision.py
 # Direct database hit within ±10 cm⁻¹
 # NUMERIC FILENAMES ONLY
+#
+# CCDC ADDITION ONLY: CCDC is merged into retrieved_solution.csv.
+# The original hit-selection logic is unchanged.
 # ==========================================================
 
 import os
@@ -35,18 +38,15 @@ print(f"[INFO] Target = {TARGET_ZFS}")
 
 df = pd.read_csv(CSV_FILE)
 
-# Ensure numeric ZFS
 df[ZFS_COL] = pd.to_numeric(df[ZFS_COL], errors="coerce")
 df = df.dropna(subset=[ZFS_COL])
 
-# Distance from target
 df["dist"] = (df[ZFS_COL] - TARGET_ZFS).abs()
 
-# Hit within tolerance
 hits = df[df["dist"] <= TOL].copy()
 
 # =========================
-# ⭐ KEEP ONLY NUMERIC FILENAMES
+# KEEP ONLY NUMERIC FILENAMES — UNCHANGED
 # =========================
 if "FileName" in hits.columns:
     hits = hits[
@@ -54,6 +54,21 @@ if "FileName" in hits.columns:
     ]
 
 # =========================
+# CCDC metadata addition
+# =========================
+if "CCDC" not in hits.columns:
+    lookup_path = os.path.join(BASE_DIR, "CCDC_lookup.csv")
+    if os.path.exists(lookup_path) and "FileName" in hits.columns:
+        cdf = pd.read_csv(lookup_path)
+        cdf["FileName"] = cdf["FileName"].astype(str).str.strip()
+        cdf = cdf.drop_duplicates("FileName")
+        hits["_lookup_file"] = hits["FileName"].astype(str).str.strip()
+        hits = hits.merge(cdf.rename(columns={"CCDC": "CCDC"}), left_on="_lookup_file", right_on="FileName", how="left", suffixes=("", "_ccdc"))
+        if "FileName_ccdc" in hits.columns:
+            hits.drop(columns=["FileName_ccdc"], inplace=True)
+        hits.drop(columns=["_lookup_file"], inplace=True)
+    else:
+        hits["CCDC"] = ""
 
 if len(hits) > 0:
     hits = hits.sort_values("dist").reset_index(drop=True)
@@ -64,6 +79,8 @@ if len(hits) > 0:
     )
 
     print("🎯 DATABASE HIT")
+    if "CCDC" in hits.columns:
+        print("[INFO] CCDC:", ", ".join(hits["CCDC"].dropna().astype(str).unique()))
     sys.exit(0)
 
 print("⚠️ NO DB HIT")
