@@ -15,7 +15,6 @@ PIPELINE_FILES = [
     "mutation_lineage.csv",
     "generated_complexes.csv",
     "elite_parents.csv",
-    "ga_checkpoint.csv",
 ]
 
 # ================= AUTH =================
