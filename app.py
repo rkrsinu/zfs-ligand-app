@@ -192,35 +192,34 @@ def pid_alive(pid):
 
 
 def worker_info():
+    """Return worker state from the child PID lock.
+
+    Older versions stored STARTING:<streamlit-pid>, which made a dead worker
+    look permanently alive because the Streamlit process itself remained alive.
+    The lock now always contains the actual worker PID.
+    """
     if not os.path.exists(LOCK_FILE):
         return False, None, None, None
+
     try:
         raw = open(LOCK_FILE, "r", encoding="utf-8").read().strip()
+        pid = int(raw)
     except Exception:
-        raw = ""
+        try:
+            os.remove(LOCK_FILE)
+        except Exception:
+            pass
+        return False, None, None, None
+
+    if not pid_alive(pid):
+        try:
+            os.remove(LOCK_FILE)
+        except Exception:
+            pass
+        return False, None, None, None
 
     status = read_json(STATUS_FILE)
-    target = status.get("target_zfs")
-    mode = status.get("mode")
-
-    if raw.startswith("STARTING:"):
-        launcher_pid = raw.split(":", 1)[1]
-        if pid_alive(launcher_pid):
-            return True, target, mode, None
-    else:
-        try:
-            pid = int(raw)
-        except Exception:
-            pid = None
-        if pid is not None and pid_alive(pid):
-            return True, target, mode, pid
-
-    try:
-        os.remove(LOCK_FILE)
-    except Exception:
-        pass
-    return False, None, None, None
-
+    return True, status.get("target_zfs"), status.get("mode"), pid
 
 def status_matches_target(status, target, mode):
     try:
@@ -280,17 +279,16 @@ def start_worker(target, mode, max_generations):
     running, active_target, active_mode, _ = worker_info()
     if running:
         if active_target is not None and active_mode is not None:
-            return False, f"A GA campaign is already running for target {active_target:g} ({active_mode})."
-        return False, "A GA worker is already starting. Please wait a few seconds."
+            return False, f"A GA campaign is already running for target {float(active_target):g} ({active_mode})."
+        return False, "A GA worker is already running. Please wait a moment."
 
+    # Remove stale state from an earlier crashed worker.
     try:
-        with open(LOCK_FILE, "x", encoding="utf-8") as fh:
-            fh.write(f"STARTING:{os.getpid()}")
-    except FileExistsError:
-        return False, "A GA worker is already starting. Please wait a few seconds."
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
 
-    # Write the target immediately so the monitor never displays an old
-    # campaign while the worker process is being launched.
     write_initial_status(target, mode, max_generations)
 
     env = os.environ.copy()
@@ -313,19 +311,21 @@ def start_worker(target, mode, max_generations):
     )
     log_fh.flush()
 
-    try:
-        kwargs = dict(
-            cwd=BASE_DIR,
-            env=env,
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            close_fds=True,
-        )
-        if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    kwargs = dict(
+        cwd=BASE_DIR,
+        env=env,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    else:
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
 
-        subprocess.Popen(
+    try:
+        proc = subprocess.Popen(
             [
                 PYTHON, WORKER,
                 "--target", str(float(target)),
@@ -336,6 +336,9 @@ def start_worker(target, mode, max_generations):
             ],
             **kwargs,
         )
+        # CRITICAL: store the CHILD PID, never the Streamlit PID.
+        with open(LOCK_FILE, "w", encoding="utf-8") as fh:
+            fh.write(str(proc.pid))
         return True, "GA worker started."
     except Exception:
         try:
@@ -343,11 +346,11 @@ def start_worker(target, mode, max_generations):
         except Exception:
             pass
         try:
-            os.remove(LOCK_FILE)
+            if os.path.exists(LOCK_FILE):
+                os.remove(LOCK_FILE)
         except Exception:
             pass
         raise
-
 
 def request_stop():
     with open(STOP_FILE, "w", encoding="utf-8") as fh:
@@ -405,12 +408,16 @@ def live_monitor():
     running, active_target, active_mode, pid = worker_info()
 
     if not status_matches_target(status, float(target_zfs), mode):
-        if running and active_target is not None:
+        if running and active_target is not None and active_mode is not None:
             st.warning(
-                f"A different campaign is running (target={active_target}, mode={active_mode}). "
-                "Select the same target and mode to view its progress."
+                f"Another GA calculation is currently running for target {float(active_target):g} "
+                f"({active_mode}). Select the same target and mode to view its progress."
             )
+        elif running:
+            st.warning("A GA calculation is starting. Progress will appear here automatically.")
         else:
+            # A previous version could leave a stale status file after a crash.
+            # Do not present that stale campaign as a running calculation.
             st.info("Set the target and click **Run** to start or resume the GA campaign.")
         return
 
@@ -423,13 +430,22 @@ def live_monitor():
     message = str(status.get("message", ""))
     progress = float(status.get("progress", 0.0) or 0.0)
     achieved = bool(status.get("target_achieved", False))
+    # If the worker died, surface that immediately instead of leaving the
+    # user with a page that appears frozen.
+    if state == "running" and not running:
+        state = "error"
+        if not status.get("error"):
+            status["error"] = (
+                "The GA worker process is no longer running. The saved checkpoint "
+                "is preserved, so Run can be used to resume."
+            )
+        message = "The calculation stopped unexpectedly. The saved progress is preserved; click Run to resume."
     complexes_generated = int(status.get("complexes_generated", 0) or 0)
     complexes_total = int(status.get("complexes_target", DEFAULT_N_COMPLEXES) or DEFAULT_N_COMPLEXES)
     ed_pass = int(status.get("ed_pass", 0) or 0)
     oracle_total = int(status.get("oracle_total", 0) or 0)
     mutations = int(status.get("mutations_generated", 0) or 0)
     elapsed = float(status.get("elapsed_seconds", 0.0) or 0.0)
-    drive_msg = status.get("drive_message")
     last_update = status.get("updated_at", "—")
 
     if best_zfs is not None:
@@ -488,14 +504,8 @@ def live_monitor():
         except Exception:
             pass
 
-    if drive_msg:
-        if str(drive_msg).lower().startswith("google drive sync completed"):
-            st.caption(f"☁️ {drive_msg}")
-        else:
-            st.caption(f"☁️ {drive_msg}")
-
-    if stage in {"starting", "database_check", "restoring", "initializing", "loading_models"}:
-        st.info("⏳ Preparing the calculation. The worker is active; the next progress values will appear automatically.")
+    if stage in {"starting", "database_check", "restoring", "initializing", "loading_models"} and running:
+        st.info("⏳ The calculation is active. This panel updates automatically while the current step is running.")
 
     if stage == "database_hit":
         st.success("🎯 A reported database structure already satisfies the target criterion.")

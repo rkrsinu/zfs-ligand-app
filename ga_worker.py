@@ -18,7 +18,6 @@ import pandas as pd
 
 from ga_progress import write_progress
 from gdrive_save import download_pipeline_from_drive, upload_pipeline_to_drive
-from oracle_engine import OracleEngine
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHECKPOINT = os.path.join(BASE_DIR, "ga_checkpoint.csv")
@@ -288,7 +287,14 @@ def main():
         # Models are loaded once for the entire worker lifetime.
         write_status(stage="loading_models", stage_progress=0.0,
                      message="Loading GNN oracle models (one-time setup)...")
-        oracle = OracleEngine(mode)
+        try:
+            from oracle_engine import OracleEngine
+            oracle = OracleEngine(mode)
+        except Exception as exc:
+            raise RuntimeError(
+                "The GNN oracle could not be loaded. Check the deployed Python "
+                "environment and torch-geometric installation."
+            ) from exc
         write_status(stage="loading_models", stage_progress=1.0,
                      message="GNN oracle models loaded and ready.")
 

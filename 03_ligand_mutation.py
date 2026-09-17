@@ -21,6 +21,7 @@ import ast
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import rdChemReactions
+from ga_progress import write_progress
 
 random.seed(42)
 
@@ -249,6 +250,8 @@ for lig in list(parent_records):
 parents = sorted(parent_records)
 print(f"[INFO] MODE = {MODE}")
 print(f"[INFO] Parent ligands: {len(parents)}")
+write_progress(stage="mutation", stage_progress=0.0, mutations_generated=0,
+                message=f"Preparing ligand mutations from {len(parents):,} parent ligands...")
 
 
 # ----------------------------------------------------------
@@ -327,8 +330,13 @@ for p in parents:
         "mutation": "database_seed" if chosen_rec.get("file_name", "") != "elite_previous_generation" else "elite_parent",
     }
 
-for p in parents:
+for parent_index, p in enumerate(parents, start=1):
     source_recs = parent_records.get(p, [{"ccdc": "", "file_name": ""}])
+    if parent_index == 1 or parent_index % 2 == 0 or parent_index == len(parents):
+        frac = parent_index / max(1, len(parents))
+        write_progress(stage_progress=min(0.99, frac),
+                       mutations_generated=len(lineage),
+                       message=f"Generating ligand mutations: parent {parent_index:,}/{len(parents):,}...")
 
     for source_rec in source_recs:
         parent_ccdc = source_rec.get("ccdc", "")
@@ -410,6 +418,9 @@ if not df_lineage.empty:
     df_lineage.drop_duplicates(inplace=True)
 
 df_lineage.to_csv("mutation_lineage.csv", index=False)
+write_progress(stage="mutation", stage_progress=1.0,
+                mutations_generated=len(lineage),
+                message=f"Ligand mutation step finished: {len(lineage):,} mutations generated.")
 
 # ----------------------------------------------------------
 # Console output for experimentalists

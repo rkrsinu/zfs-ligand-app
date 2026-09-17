@@ -132,7 +132,7 @@ write_progress(stage="complex_generation", stage_progress=0.0, complexes_generat
 
 while len(rows) < N_COMPLEXES and attempts < max_attempts:
     attempts += 1
-    if attempts - last_report >= 250:
+    if attempts - last_report >= 50:
         last_report = attempts
         frac = len(rows) / max(1, N_COMPLEXES)
         write_progress(stage_progress=min(0.99, frac), complexes_generated=len(rows),
