@@ -58,15 +58,45 @@ if run:
             except Exception:
                 pass
 
-        _display = result.copy()
-        if "FileName" in _display.columns:
-            _display["CCDC"] = _display["FileName"].astype(str).str.strip().map(_ccdc_lookup).fillna("")
-            _cols = list(_display.columns)
-            _cols.remove("CCDC")
-            _cols.insert(_cols.index("FileName") + 1, "CCDC")
-            _display = _display[_cols]
+        # Keep the direct-hit result presentation compact, matching the
+        # generation result table. The underlying retrieved_solution.csv
+        # remains unchanged; this only changes what is displayed here.
+        if not result.empty:
+            _r0 = result.iloc[0]
+            _file0 = str(_r0.get("FileName", "")).strip()
+            _ccdc0 = _ccdc_lookup.get(_file0, "")
 
-        st.dataframe(_display)
+            _ligands0 = []
+            _donors0 = []
+            for _i0 in range(1, 7):
+                _lv0 = str(_r0.get(f"L{_i0}", "")).strip()
+                if _lv0 and _lv0.upper() != "X" and _lv0.lower() != "nan":
+                    _ligands0.append(_lv0)
+                _dv0 = _r0.get(f"D{_i0}", 0)
+                try:
+                    _dv0 = float(_dv0)
+                    if _dv0 > 0:
+                        _donors0.append(int(_dv0) if _dv0.is_integer() else _dv0)
+                except Exception:
+                    pass
+
+            _zfs_col0 = "zfs" if "zfs" in result.columns else ("opt_zfs" if "opt_zfs" in result.columns else None)
+            _ed_col0 = "ed" if "ed" in result.columns else ("E/D" if "E/D" in result.columns else ("ed_pred" if "ed_pred" in result.columns else None))
+
+            _zfs0 = _r0.get(_zfs_col0, "") if _zfs_col0 else ""
+            _ed0 = _r0.get(_ed_col0, "") if _ed_col0 else ""
+            _donor_sum0 = sum(_donors0) if _donors0 else ""
+
+            _compact0 = pd.DataFrame([{
+                "Ligand Combination": ";".join(_ligands0),
+                "CCDC": _ccdc0,
+                "Donor Pattern": str(_donors0),
+                "Total Donors": _donor_sum0,
+                "Predicted D": _zfs0,
+                "E/D": _ed0,
+            }])
+
+            st.dataframe(_compact0, use_container_width=True, hide_index=True)
 
         # Same compact provenance style used below GA generations.
         if not result.empty:
