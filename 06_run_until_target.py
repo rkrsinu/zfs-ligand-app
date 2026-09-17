@@ -74,9 +74,11 @@ for gen in range(1, MAX_GEN + 1):
         if run_script("02_extract_seed_ligands.py") != 0:
             sys.exit(1)
 
+    print("🔹 Ligand mutation + parent CCDC tracking")
     if run_script("03_ligand_mutation.py") != 0:
         sys.exit(1)
 
+    print("🔹 Building complexes + CCDC provenance")
     if run_script("04_build_complexes.py") != 0:
         sys.exit(1)
 
@@ -113,6 +115,7 @@ for gen in range(1, MAX_GEN + 1):
         print(f"Parent ligand(s): {best_row.get('parent_ligands', '')}")
         print(f"Generated ligand(s): {best_row.get('ligands', '')}")
         print(f"Mutation(s): {best_row.get('mutations', '')}")
+        print("See mutation_lineage.csv for the complete parent → child history.")
         print("======================================================")
         break
 else:

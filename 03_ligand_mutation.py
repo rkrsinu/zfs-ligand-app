@@ -249,7 +249,7 @@ for lig in list(parent_records):
 parents = sorted(parent_records)
 print(f"[INFO] MODE = {MODE}")
 print(f"[INFO] Parent ligands: {len(parents)}")
-
+print("[INFO] Parent CCDC provenance is being retained for every mutation.")
 
 # ----------------------------------------------------------
 # Mutation operators
@@ -414,12 +414,16 @@ df_lineage.to_csv("mutation_lineage.csv", index=False)
 # ----------------------------------------------------------
 # Console output for experimentalists
 # ----------------------------------------------------------
-print(f"\n[INFO] Generated {len(lineage)} ligand mutations in generation {GEN}.")
-if lineage:
-    print("[CCDC PROVENANCE]")
-    for r in lineage:
-        ccdc = r["parent_ccdc"] if r["parent_ccdc"] else "CCDC_NOT_FOUND"
-        print(
-            f"  {r['parent_ligand']}  --[{r['mutation']}]-->  {r['child_ligand']}  | Parent CCDC: {ccdc}"
-        )
-print(f"[INFO] Mutated ligands: {len(mutated)}")
+print("\n[LINEAGE] Generated ligand provenance:")
+for r in lineage:
+    ccdc = r["parent_ccdc"] if r["parent_ccdc"] else "CCDC_NOT_FOUND"
+    print(
+        f"  GEN {GEN}: CCDC {ccdc} | "
+        f"parent = {r['parent_ligand']} | "
+        f"mutation = {r['mutation']} | "
+        f"child = {r['child_ligand']}"
+    )
+
+print(f"\n[INFO] Mutated ligands: {len(mutated)}")
+print(f"[INFO] Lineage entries: {len(df_lineage)}")
+print("[INFO] Experimental lookup file: mutation_lineage.csv")

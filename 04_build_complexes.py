@@ -176,4 +176,4 @@ if len(rows) < N_COMPLEXES:
 
 pd.DataFrame(rows).to_csv("generated_complexes.csv", index=False)
 print("[INFO] Generated complexes:", len(rows))
-
+print("[INFO] CCDC provenance columns written: parent_ligands, parent_ccdcs, parent_file_names")
