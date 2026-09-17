@@ -211,25 +211,36 @@ if run:
                 show_synthesis_references(best_row)
         st.stop()
 
+    # `absolute_gen` is the persistent GA generation used internally.
+    # `display_gen` is deliberately reset to 1 whenever the user presses Run.
+    # This means a restored campaign continues from its saved population, while
+    # the new visible run always starts at "Generation 1".
     if checkpoint:
-        start_gen = checkpoint["next_generation"]
+        start_absolute_gen = checkpoint["next_generation"]
         first_run = False
-        st.success(f"♻️ Resuming inverse molecular design from Generation {start_gen}")
+        st.success("♻️ Previous campaign restored. Continuing from the saved population.")
     else:
-        start_gen = 1
+        start_absolute_gen = 1
         first_run = True
         st.info("🆕 Initiating inverse molecular design")
 
-    progress = st.progress(min(1.0, (start_gen - 1) / max(1, int(max_gen))))
+    # max_gen means the number of generations requested for THIS Run click,
+    # not an absolute generation number in the persistent campaign.
+    end_absolute_gen = start_absolute_gen + int(max_gen) - 1
+    progress = st.progress(0.0)
     final_best = None
     target_achieved = False
 
-    for gen in range(start_gen, int(max_gen) + 1):
-        os.environ["GA_GEN"] = str(gen)
-        progress.progress(min(1.0, gen / max(1, int(max_gen))))
-        st.subheader(f"Generation {gen}")
+    # Re-use the same UI area instead of appending hundreds of tables.
+    # This keeps the Streamlit page small/stable for long (e.g. 500-gen) runs.
+    generation_view = st.empty()
 
-        if gen == 1 and first_run:
+    for absolute_gen in range(start_absolute_gen, end_absolute_gen + 1):
+        display_gen = absolute_gen - start_absolute_gen + 1
+        os.environ["GA_GEN"] = str(absolute_gen)
+        progress.progress(min(1.0, display_gen / max(1, int(max_gen))))
+
+        if absolute_gen == 1 and first_run:
             subprocess.call([PYTHON, "00_build_ligand_donor_map.py"])
             subprocess.call([PYTHON, "01_select_seeds.py"])
             subprocess.call([PYTHON, "02_extract_seed_ligands.py"])
@@ -237,15 +248,15 @@ if run:
         # GA stages. Provenance is retained in files but not printed here.
         ret = subprocess.call([PYTHON, "03_ligand_mutation.py"])
         if ret != 0:
-            st.error(f"Ligand mutation failed in Generation {gen}.")
+            st.error(f"Ligand mutation failed in Generation {display_gen}.")
             break
         ret = subprocess.call([PYTHON, "04_build_complexes.py"])
         if ret != 0:
-            st.error(f"Complex generation failed in Generation {gen}.")
+            st.error(f"Complex generation failed in Generation {display_gen}.")
             break
         ret = subprocess.call([PYTHON, "05_oracle_screen.py"])
         if ret != 0:
-            st.error(f"Oracle screening failed in Generation {gen}.")
+            st.error(f"Oracle screening failed in Generation {display_gen}.")
             break
 
         if os.path.exists("elite_parents.csv"):
@@ -256,21 +267,22 @@ if run:
                 D_value = float(best_row["zfs_pred"])
                 ED_value = float(best_row["ed_pred"])
 
-                st.success(f"Best ZFS so far: {D_value:.2f} cm⁻¹")
-                render_result_table(best_row)
+                with generation_view.container():
+                    st.subheader(f"Generation {display_gen}")
+                    st.success(f"Best ZFS so far: {D_value:.2f} cm⁻¹")
+                    render_result_table(best_row)
 
                 if D_value <= target_zfs:
                     target_achieved = True
-                    save_checkpoint(gen + 1, "target_achieved")
+                    save_checkpoint(absolute_gen + 1, "target_achieved")
                     upload_pipeline_to_drive(target_zfs, mode_label)
                     break
 
         # IMPORTANT: persist the next generation after every completed iteration.
         # If Streamlit Cloud restarts, the campaign resumes from this exact point
         # instead of starting again at Generation 1.
-        save_checkpoint(gen + 1, "running")
+        save_checkpoint(absolute_gen + 1, "running")
         upload_pipeline_to_drive(target_zfs, mode_label)
-        st.write("☁️ Design campaign checkpoint saved")
 
     # ================= FINAL =================
     if target_achieved and final_best is not None:
@@ -285,4 +297,4 @@ if run:
         }
         st.dataframe(pd.DataFrame([final_cols]), use_container_width=True, hide_index=True)
     elif final_best is not None:
-        st.info(f"Campaign stopped at Generation {min(int(max_gen), int(load_checkpoint().get('next_generation', 1)) - 1 if load_checkpoint() else int(max_gen))}. If the app restarts, the saved checkpoint will resume from the next generation.")
+        st.info(f"Completed {int(max_gen)} generations in this run. The latest population has been saved and can be continued with Run.")
