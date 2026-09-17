@@ -114,6 +114,8 @@ def get_target_folder(target, mode):
 
 def download_pipeline_from_drive(target, mode):
 
+    global service
+
     folder = get_target_folder(target, mode)
     restored = False
 
