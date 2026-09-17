@@ -98,22 +98,36 @@ for gen in range(1, MAX_GEN + 1):
     best_row = elite.sort_values("abs_err").iloc[0]
     best_zfs = float(best_row["zfs_pred"])
     best_ed = float(best_row["ed_pred"])
-    parent_ccdcs = best_row.get("parent_CCDC_for_experiment", "")
-
     print(f"🏆 Best predicted ZFS: {best_zfs:.4f}")
     print(f"📐 Predicted E/D: {best_ed:.4f}")
-    print(f"🧬 Parent CCDC(s): {parent_ccdcs}")
-    print(f"🧬 Parent ligand(s): {best_row.get('parent_ligands', '')}")
-    print(f"🧪 Mutation(s): {best_row.get('mutations', '')}")
 
     if best_zfs <= TARGET:
+        parent_ccdcs = best_row.get("parent_CCDC_for_experiment", best_row.get("parent_ccdcs", ""))
         print("\n🎯 TARGET ACHIEVED")
-        print("\n================ EXPERIMENTAL LOOKUP ================")
-        print(f"Parent CCDC(s): {parent_ccdcs}")
-        print(f"Parent ligand(s): {best_row.get('parent_ligands', '')}")
-        print(f"Generated ligand(s): {best_row.get('ligands', '')}")
-        print(f"Mutation(s): {best_row.get('mutations', '')}")
-        print("======================================================")
+        print("\n================ FOLLOW THESE CCDC NUMBERS FOR SYNTHESIS ================")
+
+        try:
+            import ast
+            ligands = [x.strip() for x in str(best_row.get("ligands", "")).split(";") if x.strip()]
+            parents = ast.literal_eval(str(best_row.get("parent_ligands", "[]")))
+            ccdcs = ast.literal_eval(str(best_row.get("parent_ccdcs", "[]")))
+            mutations = ast.literal_eval(str(best_row.get("mutations", "[]")))
+        except Exception:
+            ligands = [x.strip() for x in str(best_row.get("ligands", "")).split(";") if x.strip()]
+            parents = [x.strip() for x in str(best_row.get("parent_ligands", "")).split(";") if x.strip()]
+            ccdcs = [x.strip() for x in str(best_row.get("parent_ccdcs", "")).split(";") if x.strip()]
+            mutations = [x.strip() for x in str(best_row.get("mutations", "")).split(";") if x.strip()]
+
+        for i, ligand in enumerate(ligands):
+            parent = parents[i] if i < len(parents) else ""
+            ccdc = ccdcs[i] if i < len(ccdcs) else ""
+            mutation = mutations[i] if i < len(mutations) else ""
+            if mutation in ("", "database_ligand", "database_seed"):
+                print(f"L{i+1}: Reported ligand — CCDC {ccdc or 'not found'}")
+            else:
+                print(f"L{i+1}: Mutated ligand — generated from the reported ligand {parent or 'not available'} — CCDC {ccdc or 'not found'}")
+
+        print("========================================================================")
         break
 else:
     print("\n⚠️ MAX_GEN reached without achieving target.")

@@ -125,6 +125,3 @@ best = elite.iloc[0]
 print("[INFO] Elite saved:", len(elite))
 print(f"[INFO] Best predicted ZFS: {best['zfs_pred']:.4f}")
 print(f"[INFO] Best E/D: {best['ed_pred']:.4f}")
-print(f"[INFO] Parent CCDC(s): {best['parent_CCDC_for_experiment']}")
-print(f"[INFO] Parent ligand(s): {best['parent_ligands']}")
-print("[INFO] Experimental lookup: use parent_CCDC_for_experiment + mutation_lineage.csv")
