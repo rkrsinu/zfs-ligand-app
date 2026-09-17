@@ -3,6 +3,7 @@ import subprocess
 import sys
 import os
 import ast
+import html
 import pandas as pd
 
 from gdrive_save import (
@@ -12,6 +13,36 @@ from gdrive_save import (
 
 PYTHON = sys.executable
 st.set_page_config(page_title="ZFS-driven Ligand SMILES Generator", layout="wide")
+
+# ================= STYLES =================
+st.markdown("""
+<style>
+.ga-table-wrap { width: 100%; overflow-x: auto; border-radius: 10px; }
+.ga-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed;
+            font-size: 15px; background: transparent; }
+.ga-table th { padding: 13px 12px; text-align: left; font-weight: 700;
+               border-bottom: 1px solid rgba(128,128,128,.35); }
+.ga-table td { padding: 14px 12px; vertical-align: middle;
+               border-bottom: 1px solid rgba(128,128,128,.20); }
+.ga-table th:nth-child(1), .ga-table td:nth-child(1) { width: 50%; }
+.ga-table th:nth-child(2), .ga-table td:nth-child(2) { width: 18%; }
+.ga-table th:nth-child(3), .ga-table td:nth-child(3) { width: 11%; text-align:center; }
+.ga-table th:nth-child(4), .ga-table td:nth-child(4) { width: 9%; text-align:center; }
+.ga-table th:nth-child(5), .ga-table td:nth-child(5) { width: 8%; text-align:right; }
+.ga-table th:nth-child(6), .ga-table td:nth-child(6) { width: 7%; text-align:right; }
+.smiles-cell { white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+               line-height: 1.45; }
+.source-cell { line-height: 1.45; white-space: normal; }
+.source-item { margin: 0 0 5px 0; }
+.source-label { font-weight: 650; }
+.ccdc { font-weight: 650; white-space: nowrap; }
+.metric { font-variant-numeric: tabular-nums; }
+.final-box { padding: 16px 18px; border-radius: 10px;
+             border: 1px solid rgba(128,128,128,.28); margin-top: 8px; }
+.final-row { padding: 7px 0; border-bottom: 1px solid rgba(128,128,128,.18); line-height: 1.45; }
+.final-row:last-child { border-bottom: 0; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("🔬 ZFS-driven Ligand SMILES Generator")
 st.write("GA + GNN oracle pipeline for target ZFS")
@@ -26,7 +57,6 @@ run = st.sidebar.button("🚀 Run")
 
 
 def parse_list(value):
-    """Safely convert stored Python-list strings or semicolon lists to a list."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
     text = str(value).strip()
@@ -41,67 +71,113 @@ def parse_list(value):
     return [x.strip() for x in text.split(";") if x.strip()]
 
 
-def format_ligand_origins(row):
-    """Return compact per-ligand provenance for display in GA result tables."""
+def source_rows(row):
+    """Return compact per-ligand source labels.
+
+    Only the information requested by the user is shown:
+      - Mutated from reported ligand — CCDC XXXXXXX
+      - Reported ligand — CCDC XXXXXXX
+    Parent SMILES and mutation names are intentionally not displayed.
+    """
     ligands = [x.strip() for x in str(row.get("ligands", "")).split(";") if x.strip()]
-    parents = parse_list(row.get("parent_ligands", ""))
     ccdcs = parse_list(row.get("parent_ccdcs", ""))
     muts = parse_list(row.get("mutations", ""))
-
-    items = []
+    rows = []
     for i, _ in enumerate(ligands):
         ccdc = ccdcs[i] if i < len(ccdcs) else ""
         mutation = muts[i] if i < len(muts) else ""
-        is_database = mutation in {"", "database_ligand", "database_seed"}
-        if is_database:
-            label = "Reported ligand"
-        else:
-            label = "Mutated from reported ligand"
-        items.append(f"L{i+1}: {label} — CCDC {ccdc or 'not found'}")
-    return "<br>".join(items)
+        label = "Reported ligand" if mutation in {"", "database_ligand", "database_seed"} else "Mutated from reported ligand"
+        rows.append((f"L{i+1}", label, ccdc or "not found"))
+    return rows
+
+
+def format_source_cell(row):
+    parts = []
+    for ligand_id, label, ccdc in source_rows(row):
+        parts.append(
+            f'<div class="source-item"><span class="source-label">{html.escape(ligand_id)}</span> · '
+            f'{html.escape(label)} · <span class="ccdc">CCDC {html.escape(str(ccdc))}</span></div>'
+        )
+    return '<div class="source-cell">' + ''.join(parts) + '</div>' if parts else "—"
+
+
+def render_result_table(row):
+    ligands = html.escape(str(row.get("ligands", "")))
+    donor_pattern = html.escape(str(row.get("donor_list", "")))
+    donor_sum = html.escape(str(row.get("donor_sum", "")))
+    zfs = float(row.get("zfs_pred", 0.0))
+    ed = float(row.get("ed_pred", 0.0))
+    source = format_source_cell(row)
+
+    table = f"""
+    <div class="ga-table-wrap">
+      <table class="ga-table">
+        <thead><tr>
+          <th>Ligand Combination</th>
+          <th>Ligand source / CCDC</th>
+          <th>Donor Pattern</th>
+          <th>Total Donors</th>
+          <th>Predicted D</th>
+          <th>E/D</th>
+        </tr></thead>
+        <tbody><tr>
+          <td class="smiles-cell">{ligands}</td>
+          <td>{source}</td>
+          <td>{donor_pattern}</td>
+          <td class="metric">{donor_sum}</td>
+          <td class="metric">{zfs:.4f}</td>
+          <td class="metric">{ed:.5f}</td>
+        </tr></tbody>
+      </table>
+    </div>
+    """
+    st.markdown(table, unsafe_allow_html=True)
 
 
 def show_synthesis_references(row):
-    """Show only the parent-ligand/CCDC information needed for synthesis.
-
-    This section is intentionally shown only after the target ZFS is achieved.
-    For a mutated ligand, identify the reported parent ligand and its CCDC.
-    For a database ligand, identify it simply as a reported ligand and give its CCDC.
-    """
-    ligands = [x.strip() for x in str(row.get("ligands", "")).split(";") if x.strip()]
-    parents = parse_list(row.get("parent_ligands", ""))
-    ccdcs = parse_list(row.get("parent_ccdcs", ""))
-    muts = parse_list(row.get("mutations", ""))
-
-    st.markdown("### 🧪 Ligand mutation & parent CCDC")
-    st.write("Reported ligand source and parent CCDC.")
-
+    """Compact final CCDC references, shown only after target achievement."""
+    st.markdown("### 🧪 Follow these CCDC numbers for synthesis")
     records = []
-    for i, child in enumerate(ligands):
-        parent = parents[i] if i < len(parents) else ""
-        ccdc = ccdcs[i] if i < len(ccdcs) else ""
-        mutation = muts[i] if i < len(muts) else ""
-
-        is_database = mutation in {"", "database_ligand", "database_seed"}
-        if is_database:
-            text = f"L{i+1}: Reported ligand — CCDC {ccdc or 'not found'}"
-        else:
-            text = (
-                f"L{i+1}: Mutated ligand — generated from the reported ligand "
-                f"{parent or 'not available'} — CCDC {ccdc or 'not found'}"
-            )
-        records.append({"Ligand": f"L{i+1}", "Synthesis reference": text})
-
+    for ligand_id, label, ccdc in source_rows(row):
+        records.append(
+            f'<div class="final-row"><b>{html.escape(ligand_id)}</b> · '
+            f'{html.escape(label)} · <b>CCDC {html.escape(str(ccdc))}</b></div>'
+        )
     if records:
-        for r in records:
-            st.write(f"- **{r['Ligand']}:** {r['Synthesis reference'].split(': ', 1)[1]}")
+        st.markdown('<div class="final-box">' + ''.join(records) + '</div>', unsafe_allow_html=True)
     else:
         st.warning("No ligand/CCDC provenance was resolved for the final candidate.")
 
 
-def show_experimental_lookup(row):
-    """Backward-compatible wrapper for the final synthesis-reference section."""
-    show_synthesis_references(row)
+def load_checkpoint():
+    path = "ga_checkpoint.csv"
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_csv(path)
+        if df.empty:
+            return None
+        r = df.iloc[0]
+        saved_target = float(r.get("target_zfs", target_zfs))
+        saved_mode = str(r.get("mode", mode)).strip().lower()
+        if abs(saved_target - float(target_zfs)) > 1e-12 or saved_mode != mode:
+            return None
+        return {
+            "next_generation": max(1, int(r.get("next_generation", 1))),
+            "status": str(r.get("status", "running")).strip().lower(),
+        }
+    except Exception:
+        return None
+
+
+def save_checkpoint(next_generation, status="running"):
+    pd.DataFrame([{
+        "target_zfs": float(target_zfs),
+        "mode": mode,
+        "completed_generation": max(0, int(next_generation) - 1),
+        "next_generation": int(next_generation),
+        "status": status,
+    }]).to_csv("ga_checkpoint.csv", index=False)
 
 
 # ================= RUN =================
@@ -115,27 +191,42 @@ if run:
     if db_ret == 0:
         st.success("🎯 Direct database match found")
         result = pd.read_csv("retrieved_solution.csv")
-        st.dataframe(result, use_container_width=True)
-        if "CCDC" in result.columns:
-            st.markdown("### 🧪 Ligand mutation & parent CCDC")
-            st.write("Reported ligand source and parent CCDC.")
+        st.dataframe(result, use_container_width=True, hide_index=True)
         st.stop()
 
     st.warning("⚠️ No suitable database hit found → 🚀 Entering AI-guided design mode")
 
     restored = download_pipeline_from_drive(target_zfs, mode_label)
-    first_run = not restored
-    if restored:
-        st.success("♻️ Resuming inverse molecular design")
+    checkpoint = load_checkpoint() if restored else None
+
+    if checkpoint and checkpoint["status"] == "target_achieved":
+        st.success(f"♻️ Target was already achieved in Generation {checkpoint['next_generation'] - 1}. Restored final result.")
+        if os.path.exists("elite_parents.csv"):
+            elite = pd.read_csv("elite_parents.csv")
+            if not elite.empty:
+                best_row = elite.sort_values("abs_err").iloc[0]
+                st.success(f"Best ZFS: {float(best_row['zfs_pred']):.2f} cm⁻¹")
+                render_result_table(best_row)
+                st.markdown("---")
+                show_synthesis_references(best_row)
+        st.stop()
+
+    if checkpoint:
+        start_gen = checkpoint["next_generation"]
+        first_run = False
+        st.success(f"♻️ Resuming inverse molecular design from Generation {start_gen}")
     else:
+        start_gen = 1
+        first_run = True
         st.info("🆕 Initiating inverse molecular design")
 
-    progress = st.progress(0)
+    progress = st.progress(min(1.0, (start_gen - 1) / max(1, int(max_gen))))
     final_best = None
+    target_achieved = False
 
-    for gen in range(1, int(max_gen) + 1):
+    for gen in range(start_gen, int(max_gen) + 1):
         os.environ["GA_GEN"] = str(gen)
-        progress.progress(gen / max_gen)
+        progress.progress(min(1.0, gen / max(1, int(max_gen))))
         st.subheader(f"Generation {gen}")
 
         if gen == 1 and first_run:
@@ -143,69 +234,55 @@ if run:
             subprocess.call([PYTHON, "01_select_seeds.py"])
             subprocess.call([PYTHON, "02_extract_seed_ligands.py"])
 
-        # Run the pipeline silently here; detailed provenance is shown below.
-        subprocess.call([PYTHON, "03_ligand_mutation.py"])
-        subprocess.call([PYTHON, "04_build_complexes.py"])
-        subprocess.call([PYTHON, "05_oracle_screen.py"])
+        # GA stages. Provenance is retained in files but not printed here.
+        ret = subprocess.call([PYTHON, "03_ligand_mutation.py"])
+        if ret != 0:
+            st.error(f"Ligand mutation failed in Generation {gen}.")
+            break
+        ret = subprocess.call([PYTHON, "04_build_complexes.py"])
+        if ret != 0:
+            st.error(f"Complex generation failed in Generation {gen}.")
+            break
+        ret = subprocess.call([PYTHON, "05_oracle_screen.py"])
+        if ret != 0:
+            st.error(f"Oracle screening failed in Generation {gen}.")
+            break
 
         if os.path.exists("elite_parents.csv"):
             elite = pd.read_csv("elite_parents.csv")
             if not elite.empty:
-                best_row = elite.sort_values("abs_err").iloc[0]
-                final_best = best_row.copy()
-
-                ligand_combo = best_row["ligands"]
-                donor_list = best_row["donor_list"]
-                donor_sum = best_row["donor_sum"]
+                best_row = elite.sort_values("abs_err").iloc[0].copy()
+                final_best = best_row
                 D_value = float(best_row["zfs_pred"])
                 ED_value = float(best_row["ed_pred"])
 
                 st.success(f"Best ZFS so far: {D_value:.2f} cm⁻¹")
+                render_result_table(best_row)
 
-                result_df = pd.DataFrame([{
-                    "Ligand Combination": ligand_combo,
-                    "Ligand source / CCDC": format_ligand_origins(best_row),
-                    "Donor Pattern": donor_list,
-                    "Total Donors": donor_sum,
-                    "Predicted D": D_value,
-                    "E/D": ED_value,
-                }])
-                st.markdown(
-                    result_df.to_html(index=False, escape=False),
-                    unsafe_allow_html=True,
-                )
-
-                # Do not show provenance, mutation details, structures, or synthesis
-                # references during intermediate generations. They are shown only
-                # after the target is achieved.
                 if D_value <= target_zfs:
-                    st.success("🎯 Target achieved")
+                    target_achieved = True
+                    save_checkpoint(gen + 1, "target_achieved")
                     upload_pipeline_to_drive(target_zfs, mode_label)
                     break
 
-        if any(os.path.exists(f) for f in [
-            "mutated_ligands.csv",
-            "mutation_lineage.csv",
-            "generated_complexes.csv",
-            "elite_parents.csv",
-        ]):
-            upload_pipeline_to_drive(target_zfs, mode_label)
-            st.write("☁️ Design campaign checkpoint saved")
+        # IMPORTANT: persist the next generation after every completed iteration.
+        # If Streamlit Cloud restarts, the campaign resumes from this exact point
+        # instead of starting again at Generation 1.
+        save_checkpoint(gen + 1, "running")
+        upload_pipeline_to_drive(target_zfs, mode_label)
+        st.write("☁️ Design campaign checkpoint saved")
 
-    # ======================================================
-    # FINAL SYNTHESIS REFERENCES — ONLY AFTER TARGET ACHIEVEMENT
-    # ======================================================
-    if final_best is not None:
-        final_zfs = float(final_best.get("zfs_pred", 0.0))
-        if final_zfs <= target_zfs:
-            st.markdown("---")
-            st.markdown("# 🧪 Ligand source & parent CCDC")
-            show_synthesis_references(final_best)
+    # ================= FINAL =================
+    if target_achieved and final_best is not None:
+        st.markdown("---")
+        show_synthesis_references(final_best)
 
-            st.markdown("### 📋 Final candidate")
-            final_cols = {
-                "Ligand Combination": final_best.get("ligands", ""),
-                "Predicted D": final_best.get("zfs_pred", ""),
-                "E/D": final_best.get("ed_pred", ""),
-            }
-            st.dataframe(pd.DataFrame([final_cols]), use_container_width=True, hide_index=True)
+        st.markdown("### 📋 Final candidate")
+        final_cols = {
+            "Ligand Combination": final_best.get("ligands", ""),
+            "Predicted D": final_best.get("zfs_pred", ""),
+            "E/D": final_best.get("ed_pred", ""),
+        }
+        st.dataframe(pd.DataFrame([final_cols]), use_container_width=True, hide_index=True)
+    elif final_best is not None:
+        st.info(f"Campaign stopped at Generation {min(int(max_gen), int(load_checkpoint().get('next_generation', 1)) - 1 if load_checkpoint() else int(max_gen))}. If the app restarts, the saved checkpoint will resume from the next generation.")
