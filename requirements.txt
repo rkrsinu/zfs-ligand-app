@@ -1,8 +1,10 @@
-streamlit>=1.37,<2.0
+streamlit
+
 numpy<2.0
 pandas<3.0
 scikit-learn
 protobuf<4
+
 torch==2.1.2
 
 --find-links https://data.pyg.org/whl/torch-2.1.2+cpu.html
