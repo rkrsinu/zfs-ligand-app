@@ -2,6 +2,8 @@ import streamlit as st
 import subprocess
 import sys
 import os
+import ast
+import html
 import pandas as pd
 
 from gdrive_save import (
@@ -111,6 +113,100 @@ if run:
                 }])
 
                 st.dataframe(result_df)
+
+                # ================= LIGAND PROVENANCE =================
+                # Added only to show whether each ligand is reported or modified,
+                # and, for modified ligands, the modification and immediate parent.
+                def _parse_meta_list(value):
+                    if value is None or (isinstance(value, float) and pd.isna(value)):
+                        return []
+                    try:
+                        parsed = ast.literal_eval(str(value))
+                        if isinstance(parsed, (list, tuple)):
+                            return [str(x).strip() for x in parsed]
+                    except Exception:
+                        pass
+                    return [x.strip() for x in str(value).split(';') if x.strip()]
+
+                def _mutation_label(mutation):
+                    labels = {
+                        "methyl_addition": "Methyl addition",
+                        "ethyl_addition": "Ethyl addition",
+                        "isopropyl_addition": "Isopropyl addition",
+                        "atom_type_substitution": "Atom-type substitution",
+                        "halogen_exchange": "Halogen exchange",
+                    }
+                    return labels.get(str(mutation).strip(), str(mutation).replace('_', ' ').title())
+
+                def _mutation_style(mutation):
+                    styles = {
+                        "methyl_addition": ("#7c3aed", "#f5f3ff"),
+                        "ethyl_addition": ("#2563eb", "#eff6ff"),
+                        "isopropyl_addition": ("#0891b2", "#ecfeff"),
+                        "atom_type_substitution": ("#d97706", "#fffbeb"),
+                        "halogen_exchange": ("#dc2626", "#fef2f2"),
+                    }
+                    return styles.get(str(mutation).strip(), ("#475569", "#f8fafc"))
+
+                def _resolve_provenance(ligand, parent_ligand, mutation):
+                    mutation = str(mutation).strip()
+                    parent_ligand = str(parent_ligand).strip()
+
+                    if mutation not in {"", "database_ligand", "elite_parent"}:
+                        return mutation, parent_ligand
+
+                    # An elite ligand can itself be a previously modified ligand.
+                    # Recover its immediate mutation/parent from the stored lineage.
+                    if os.path.exists("mutation_lineage.csv"):
+                        try:
+                            lineage_df = pd.read_csv("mutation_lineage.csv")
+                            matches = lineage_df[lineage_df["child"].astype(str).str.strip() == str(ligand).strip()]
+                            if not matches.empty:
+                                r = matches.iloc[-1]
+                                m = str(r.get("mutation", "")).strip()
+                                p = str(r.get("parent", "")).strip()
+                                if m and m != "database_ligand":
+                                    return m, p
+                        except Exception:
+                            pass
+
+                    return "database_ligand", ligand
+
+                ligand_items = _parse_meta_list(ligand_combo)
+                parent_items = _parse_meta_list(best_row.get("parent_ligands", ""))
+                mutation_items = _parse_meta_list(best_row.get("mutations", ""))
+
+                st.markdown("### 🧬 Ligand provenance")
+
+                cards = []
+                for i, ligand in enumerate(ligand_items):
+                    parent = parent_items[i] if i < len(parent_items) else ligand
+                    mutation = mutation_items[i] if i < len(mutation_items) else "database_ligand"
+                    mutation, parent = _resolve_provenance(ligand, parent, mutation)
+
+                    if mutation == "database_ligand":
+                        cards.append(f"""
+                        <div style="border:1px solid #14532d; border-radius:10px; padding:12px 14px; margin:8px 0; background:#052e16;">
+                          <div style="font-size:16px; font-weight:700; color:#4ade80;">L{i+1} · REPORTED LIGAND</div>
+                          <div style="margin-top:6px; color:#e5e7eb; word-break:break-all;"><b>Ligand:</b> {html.escape(str(ligand))}</div>
+                        </div>
+                        """)
+                    else:
+                        fg, bg = _mutation_style(mutation)
+                        label = _mutation_label(mutation)
+                        cards.append(f"""
+                        <div style="border:1px solid {fg}; border-radius:10px; padding:12px 14px; margin:8px 0; background:#111827;">
+                          <div style="font-size:16px; font-weight:700; color:#60a5fa;">L{i+1} · MODIFIED LIGAND</div>
+                          <div style="margin-top:7px;">
+                            <span style="display:inline-block; padding:4px 9px; border-radius:999px; background:{bg}; color:{fg}; font-weight:700; font-size:13px;">{html.escape(label)}</span>
+                          </div>
+                          <div style="margin-top:8px; color:#e5e7eb; word-break:break-all;"><b>Modified ligand:</b> {html.escape(str(ligand))}</div>
+                          <div style="margin-top:6px; color:#cbd5e1; word-break:break-all;"><b>Parent ligand:</b> {html.escape(str(parent))}</div>
+                        </div>
+                        """)
+
+                if cards:
+                    st.markdown("".join(cards), unsafe_allow_html=True)
 
                 # stop if target achieved
                 if D_value <= target_zfs:
