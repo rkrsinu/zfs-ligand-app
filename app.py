@@ -42,7 +42,58 @@ if run:
     if db_ret == 0:
         st.success("🎯 Direct database match found")
         result = pd.read_csv("retrieved_solution.csv")
-        st.dataframe(result)
+
+        # ================= CCDC DISPLAY FOR DIRECT DATABASE HIT =================
+        # Original database result is kept intact; only CCDC/provenance display is added.
+        _ccdc_lookup = {}
+        if os.path.exists("CCDC_lookup.csv"):
+            try:
+                _cdf = pd.read_csv("CCDC_lookup.csv")
+                if "FileName" in _cdf.columns and "CCDC" in _cdf.columns:
+                    for _, _rr in _cdf.iterrows():
+                        _key = str(_rr["FileName"]).strip()
+                        _val = str(_rr["CCDC"]).strip()
+                        if _key and _key.lower() != "nan" and _val and _val.lower() != "nan":
+                            _ccdc_lookup[_key] = _val
+            except Exception:
+                pass
+
+        _display = result.copy()
+        if "FileName" in _display.columns:
+            _display["CCDC"] = _display["FileName"].astype(str).str.strip().map(_ccdc_lookup).fillna("")
+            _cols = list(_display.columns)
+            _cols.remove("CCDC")
+            _cols.insert(_cols.index("FileName") + 1, "CCDC")
+            _display = _display[_cols]
+
+        st.dataframe(_display)
+
+        # Same compact provenance style used below GA generations.
+        if not result.empty:
+            _r = result.iloc[0]
+            _file = str(_r.get("FileName", "")).strip()
+            _ccdc = _ccdc_lookup.get(_file, "")
+            st.markdown("### 🧬 Ligand provenance")
+
+            _cards = []
+            for _i in range(1, 7):
+                _col = f"L{_i}"
+                if _col not in result.columns:
+                    continue
+                _lig = str(_r.get(_col, "")).strip()
+                if not _lig or _lig.upper() == "X":
+                    continue
+                _cards.append(f"""
+                <div style="border:1px solid #14532d; border-radius:10px; padding:12px 14px; margin:8px 0; background:#052e16;">
+                  <div style="font-size:16px; font-weight:700; color:#4ade80;">L{_i} · REPORTED LIGAND</div>
+                  <div style="margin-top:6px; color:#e5e7eb; word-break:break-all;"><b>Ligand:</b> {html.escape(_lig)}</div>
+                  <div style="margin-top:6px; color:#86efac;"><b>CCDC:</b> {html.escape(_ccdc) if _ccdc else "Not available"}</div>
+                </div>
+                """)
+
+            if _cards:
+                st.markdown("".join(_cards), unsafe_allow_html=True)
+
         st.stop()
 
     st.warning("⚠️ No suitable database hit found → 🚀 Entering AI-guided design mode")
