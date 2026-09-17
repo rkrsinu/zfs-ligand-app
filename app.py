@@ -41,6 +41,26 @@ def parse_list(value):
     return [x.strip() for x in text.split(";") if x.strip()]
 
 
+def format_ligand_origins(row):
+    """Return compact per-ligand provenance for display in GA result tables."""
+    ligands = [x.strip() for x in str(row.get("ligands", "")).split(";") if x.strip()]
+    parents = parse_list(row.get("parent_ligands", ""))
+    ccdcs = parse_list(row.get("parent_ccdcs", ""))
+    muts = parse_list(row.get("mutations", ""))
+
+    items = []
+    for i, _ in enumerate(ligands):
+        ccdc = ccdcs[i] if i < len(ccdcs) else ""
+        mutation = muts[i] if i < len(muts) else ""
+        is_database = mutation in {"", "database_ligand", "database_seed"}
+        if is_database:
+            label = "Reported ligand"
+        else:
+            label = "Mutated from reported ligand"
+        items.append(f"L{i+1}: {label} — CCDC {ccdc or 'not found'}")
+    return "<br>".join(items)
+
+
 def show_synthesis_references(row):
     """Show only the parent-ligand/CCDC information needed for synthesis.
 
@@ -54,7 +74,7 @@ def show_synthesis_references(row):
     muts = parse_list(row.get("mutations", ""))
 
     st.markdown("### 🧪 Ligand mutation & parent CCDC")
-    st.write("Follow these reported CCDC numbers to locate the parent ligand/complex and its reported synthetic procedure.")
+    st.write("Reported ligand source and parent CCDC.")
 
     records = []
     for i, child in enumerate(ligands):
@@ -98,7 +118,7 @@ if run:
         st.dataframe(result, use_container_width=True)
         if "CCDC" in result.columns:
             st.markdown("### 🧪 Ligand mutation & parent CCDC")
-            st.write("Follow the reported CCDC number to locate the corresponding crystal-structure paper, supporting information, and reported synthesis.")
+            st.write("Reported ligand source and parent CCDC.")
         st.stop()
 
     st.warning("⚠️ No suitable database hit found → 🚀 Entering AI-guided design mode")
@@ -144,12 +164,16 @@ if run:
 
                 result_df = pd.DataFrame([{
                     "Ligand Combination": ligand_combo,
+                    "Ligand source / CCDC": format_ligand_origins(best_row),
                     "Donor Pattern": donor_list,
                     "Total Donors": donor_sum,
                     "Predicted D": D_value,
                     "E/D": ED_value,
                 }])
-                st.dataframe(result_df, use_container_width=True, hide_index=True)
+                st.markdown(
+                    result_df.to_html(index=False, escape=False),
+                    unsafe_allow_html=True,
+                )
 
                 # Do not show provenance, mutation details, structures, or synthesis
                 # references during intermediate generations. They are shown only
@@ -175,7 +199,7 @@ if run:
         final_zfs = float(final_best.get("zfs_pred", 0.0))
         if final_zfs <= target_zfs:
             st.markdown("---")
-            st.markdown("# 🧪 Follow these CCDC numbers for synthesis")
+            st.markdown("# 🧪 Ligand source & parent CCDC")
             show_synthesis_references(final_best)
 
             st.markdown("### 📋 Final candidate")
